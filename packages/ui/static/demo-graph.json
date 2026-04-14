@@ -1,0 +1,139 @@
+{
+  "id": "demo-project",
+  "repoPath": "/path/to/your/project",
+  "rootNodeId": "root",
+  "nodes": {
+    "root": {
+      "id": "root",
+      "path": ".",
+      "name": "demo-project",
+      "type": "root",
+      "layer": 0,
+      "children": ["app", "lib", "tests"],
+      "parent": null,
+      "summary": "Example project — load your own via the Klonode CLI to see real routing.",
+      "language": "TypeScript",
+      "tokenBudget": 800,
+      "contextFile": {
+        "inputs": [],
+        "process": [],
+        "outputs": [],
+        "rawMarkdown": "# demo-project\n\nThis is an empty demo graph. Run `klonode init` in your own project to generate a real routing graph.\n\n## Getting started\n\n1. `pnpm install`\n2. `cd packages/ui && pnpm dev`\n3. Open http://localhost:5173\n4. Use the CLI to scan a real repo: `klonode init /path/to/project`\n\n## About Klonode\n\nKlonode generates hierarchical context routing (CONTEXT.md files) for any codebase so Claude Code and other AI assistants can navigate without wasted tokens. Read more in the README.",
+        "lineCount": 12,
+        "tokenCount": 120,
+        "lastGenerated": "2026-04-14T00:00:00.000Z",
+        "manuallyEdited": false
+      },
+      "telemetry": {
+        "accessCount": 0,
+        "lastAccessed": null,
+        "avgTokensConsumed": 0,
+        "taskTypes": { "feature": 0, "bugfix": 0, "refactor": 0, "test": 0, "docs": 0, "config": 0, "unknown": 0 },
+        "effectivenessScore": 0
+      }
+    },
+    "app": {
+      "id": "app",
+      "path": "app",
+      "name": "app",
+      "type": "directory",
+      "layer": 1,
+      "children": [],
+      "parent": "root",
+      "summary": "Application entry points and pages.",
+      "language": "TypeScript",
+      "tokenBudget": 300,
+      "contextFile": {
+        "inputs": [],
+        "process": [],
+        "outputs": [],
+        "rawMarkdown": "# app\n\nApplication routes and pages. Replace this with your own content.",
+        "lineCount": 3,
+        "tokenCount": 20,
+        "lastGenerated": "2026-04-14T00:00:00.000Z",
+        "manuallyEdited": false
+      },
+      "telemetry": {
+        "accessCount": 0,
+        "lastAccessed": null,
+        "avgTokensConsumed": 0,
+        "taskTypes": { "feature": 0, "bugfix": 0, "refactor": 0, "test": 0, "docs": 0, "config": 0, "unknown": 0 },
+        "effectivenessScore": 0
+      }
+    },
+    "lib": {
+      "id": "lib",
+      "path": "lib",
+      "name": "lib",
+      "type": "directory",
+      "layer": 1,
+      "children": [],
+      "parent": "root",
+      "summary": "Shared libraries and utilities.",
+      "language": "TypeScript",
+      "tokenBudget": 300,
+      "contextFile": {
+        "inputs": [],
+        "process": [],
+        "outputs": [],
+        "rawMarkdown": "# lib\n\nShared utilities and helper functions.",
+        "lineCount": 3,
+        "tokenCount": 20,
+        "lastGenerated": "2026-04-14T00:00:00.000Z",
+        "manuallyEdited": false
+      },
+      "telemetry": {
+        "accessCount": 0,
+        "lastAccessed": null,
+        "avgTokensConsumed": 0,
+        "taskTypes": { "feature": 0, "bugfix": 0, "refactor": 0, "test": 0, "docs": 0, "config": 0, "unknown": 0 },
+        "effectivenessScore": 0
+      }
+    },
+    "tests": {
+      "id": "tests",
+      "path": "tests",
+      "name": "tests",
+      "type": "directory",
+      "layer": 1,
+      "children": [],
+      "parent": "root",
+      "summary": "Test suite.",
+      "language": "TypeScript",
+      "tokenBudget": 300,
+      "contextFile": {
+        "inputs": [],
+        "process": [],
+        "outputs": [],
+        "rawMarkdown": "# tests\n\nUnit and integration tests.",
+        "lineCount": 3,
+        "tokenCount": 15,
+        "lastGenerated": "2026-04-14T00:00:00.000Z",
+        "manuallyEdited": false
+      },
+      "telemetry": {
+        "accessCount": 0,
+        "lastAccessed": null,
+        "avgTokensConsumed": 0,
+        "taskTypes": { "feature": 0, "bugfix": 0, "refactor": 0, "test": 0, "docs": 0, "config": 0, "unknown": 0 },
+        "effectivenessScore": 0
+      }
+    }
+  },
+  "edges": [
+    { "id": "e1", "from": "root", "to": "app", "type": "contains", "weight": 1 },
+    { "id": "e2", "from": "root", "to": "lib", "type": "contains", "weight": 1 },
+    { "id": "e3", "from": "root", "to": "tests", "type": "contains", "weight": 1 }
+  ],
+  "metadata": {
+    "repoName": "demo-project",
+    "totalFiles": 0,
+    "totalDirectories": 3,
+    "languages": { "TypeScript": 1 },
+    "generatedAt": "2026-04-14T00:00:00.000Z",
+    "lastOptimized": null,
+    "version": "0.1.0"
+  },
+  "createdAt": "2026-04-14T00:00:00.000Z",
+  "updatedAt": "2026-04-14T00:00:00.000Z"
+}

@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.turbo/
+.svelte-kit/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Klonode runtime data
+.klonode/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.db
+
+# Test artifacts
+test-*.js
+test-*.json
+coverage/
+
+# Local Claude Code settings (user-specific)
+.claude/settings.local.json
+.claude/launch.json
