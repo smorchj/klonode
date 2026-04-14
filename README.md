@@ -1,5 +1,9 @@
 # Klonode
 
+[![CI](https://github.com/smorchj/klonode/actions/workflows/ci.yml/badge.svg)](https://github.com/smorchj/klonode/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 **Intelligent context routing for AI coding assistants.**
 
 Klonode scans a codebase and generates hierarchical `CONTEXT.md` files that let Claude Code (and other AI assistants) navigate to exactly the right code without wasted tokens. It also ships a workstation UI for chatting with multiple Claude CLI sessions at once, all routed automatically through the generated context graph.

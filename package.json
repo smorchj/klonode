@@ -2,7 +2,26 @@
   "name": "klonode",
   "version": "0.1.0",
   "private": true,
-  "description": "Auto-generate intelligent AI context routing for any git project",
+  "description": "Intelligent context routing for AI coding assistants — cuts Claude Code token usage dramatically",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smorchj/klonode.git"
+  },
+  "homepage": "https://github.com/smorchj/klonode#readme",
+  "bugs": {
+    "url": "https://github.com/smorchj/klonode/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "context",
+    "routing",
+    "tokens",
+    "llm",
+    "developer-tools"
+  ],
   "workspaces": [
     "packages/*"
   ],
