@@ -22,6 +22,7 @@ program
   .argument('[path]', 'Path to the git repository', '.')
   .option('-m, --mode <mode>', 'Output mode: inline or shadow', 'inline')
   .option('--dry-run', 'Show what would be generated without writing files')
+  .option('--gitignore-only', 'Append Klonode presets to .gitignore without scanning')
   .action(initCommand);
 
 program
