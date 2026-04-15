@@ -14,7 +14,7 @@
 - Discrimination based on race, gender, sexuality, religion, nationality, disability, or any other characteristic
 - Posting others' private information
 - Sustained disruption of discussions
-- AI-slop PRs with no human review or value
+- Low-quality PRs that don't follow the project's conventions or that the contributor can't explain when asked
 - Spamming issues or PRs
 
 ## Enforcement
