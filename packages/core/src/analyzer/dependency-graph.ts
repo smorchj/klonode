@@ -12,7 +12,7 @@ export interface Dependency {
   fromFile: string;
   toFile: string;
   importPath: string;
-  type: 'local' | 'package' | 'builtin';
+  type: 'local' | 'package' | 'builtin' | 'dynamic';
 }
 
 export interface DirectoryDependency {
@@ -23,18 +23,27 @@ export interface DirectoryDependency {
 
 // Regex patterns for common import styles
 const IMPORT_PATTERNS = [
-  // ES modules: import ... from '...'
+  // [0] ES modules: import ... from '...'
   /import\s+(?:.*?\s+from\s+)?['"]([^'"]+)['"]/g,
-  // Dynamic import: import('...')
+  // [1] Dynamic import with string literal: import('...')
   /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-  // CommonJS: require('...')
+  // [2] CommonJS with string literal: require('...')
   /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-  // Python: from ... import ... / import ...
+  // [3] Dynamic import with template literal: import(`...`)
+  /import\s*\(\s*`([^`]*)`\s*\)/g,
+  // [4] CommonJS with template literal: require(`...`)
+  /require\s*\(\s*`([^`]*)`\s*\)/g,
+  // [5] Dynamic import with variable: import(expr) — fallback catch-all
+  /import\s*\(\s*([^)'"`\s][^)]*?)\s*\)/g,
+  // [6] CommonJS with variable: require(expr) — fallback catch-all
+  /require\s*\(\s*([^)'"`\s][^)]*?)\s*\)/g,
+  // [7] Python: from ... import ... / import ...
   /^from\s+([^\s]+)\s+import/gm,
+  // [8]
   /^import\s+([^\s,]+)/gm,
-  // Rust: use crate::... / mod ...
+  // [9] Rust: use crate::... / mod ...
   /use\s+(?:crate::)?([^\s;{]+)/g,
-  // Go: import "..."
+  // [10] Go: import "..."
   /import\s+(?:\w+\s+)?["']([^"']+)["']/g,
 ];
 
@@ -54,28 +63,61 @@ function extractImports(content: string, filePath: string): string[] {
     case '.jsx':
     case '.mjs':
     case '.cjs':
-      patterns = IMPORT_PATTERNS.slice(0, 3);
+      patterns = IMPORT_PATTERNS.slice(0, 7);
       break;
     case '.py':
-      patterns = IMPORT_PATTERNS.slice(3, 5);
+      patterns = IMPORT_PATTERNS.slice(7, 9);
       break;
     case '.rs':
-      patterns = [IMPORT_PATTERNS[5]];
+      patterns = [IMPORT_PATTERNS[9]];
       break;
     case '.go':
-      patterns = [IMPORT_PATTERNS[6]];
+      patterns = [IMPORT_PATTERNS[10]];
       break;
     default:
       return imports;
   }
+
+  // Track what we've already captured with string-literal patterns
+  // to avoid duplicates from the variable-expression fallback patterns
+  const seen = new Set<string>();
 
   for (const pattern of patterns) {
     // Reset regex state
     const re = new RegExp(pattern.source, pattern.flags);
     let match;
     while ((match = re.exec(content)) !== null) {
-      if (match[1]) {
-        imports.push(match[1]);
+      if (!match[1]) continue;
+
+      let captured = match[1];
+
+      // For template literal patterns ([3] and [4]), extract the static
+      // prefix up to the first interpolation `${...}`
+      if (pattern === IMPORT_PATTERNS[3] || pattern === IMPORT_PATTERNS[4]) {
+        const dollarIdx = captured.indexOf('${');
+        if (dollarIdx > 0) {
+          captured = captured.slice(0, dollarIdx);
+        } else if (dollarIdx === 0) {
+          // Entirely dynamic — no static prefix to resolve
+          continue;
+        }
+        // else: no interpolation — template literal used like a normal string
+      }
+
+      // For variable-expression fallback patterns ([5] and [6]),
+      // mark as a dynamic unresolvable but still record for graph completeness
+      if (pattern === IMPORT_PATTERNS[5] || pattern === IMPORT_PATTERNS[6]) {
+        // Skip if we already captured this via a more precise pattern
+        if (seen.has(captured)) continue;
+        // Record as-is; classifyImport will return 'dynamic' for non-path expressions
+        imports.push(captured);
+        seen.add(captured);
+        continue;
+      }
+
+      if (!seen.has(captured)) {
+        imports.push(captured);
+        seen.add(captured);
       }
     }
   }
@@ -86,12 +128,17 @@ function extractImports(content: string, filePath: string): string[] {
 /**
  * Classify an import path as local, package, or builtin.
  */
-function classifyImport(importPath: string): 'local' | 'package' | 'builtin' {
+function classifyImport(importPath: string): 'local' | 'package' | 'builtin' | 'dynamic' {
   if (importPath.startsWith('.') || importPath.startsWith('/')) {
     return 'local';
   }
   if (importPath.startsWith('node:') || importPath.startsWith('std')) {
     return 'builtin';
+  }
+  // Variable expressions: contains whitespace, ternary operators, or
+  // parentheses — not a valid import specifier.
+  if (/[?()\s]/.test(importPath)) {
+    return 'dynamic';
   }
   return 'package';
 }
