@@ -85,11 +85,32 @@ const TOOL_SIGNATURES: ToolSignature[] = [
     contextHint: 'Nuxt: auto-imports, pages in pages/, server in server/',
   },
   {
+    id: 'astro', name: 'Astro', category: 'framework',
+    signals: ['astro.config.mjs', 'astro.config.js', 'astro.config.ts'],
+    filePatterns: ['src/pages/**/*.astro', 'src/components/**/*.astro', 'src/layouts/**/*.astro', 'astro.config.*'],
+    versionFrom: 'package.json', packageName: 'astro',
+    contextHint: 'Astro: content-first framework, pages in src/pages/, components in src/components/, layouts in src/layouts/',
+  },
+  {
     id: 'express', name: 'Express', category: 'framework',
     signals: [],  // detected via package.json only
     filePatterns: ['routes/**', 'middleware/**'],
     versionFrom: 'package.json', packageName: 'express',
     contextHint: 'Express: middleware + router pattern, routes in routes/',
+  },
+  // Runtimes
+  {
+    id: 'deno', name: 'Deno', category: 'language',
+    signals: ['deno.json', 'deno.jsonc', 'import_map.json'],
+    filePatterns: ['deno.json*', '**/*.ts'],
+    contextHint: 'Deno: secure TypeScript runtime, std lib at jsr:@std, permissions required',
+  },
+  {
+    id: 'bun', name: 'Bun', category: 'language',
+    signals: ['bunfig.toml', 'bun.lockb', 'bun.lock'],
+    filePatterns: ['bunfig.toml', '**/*.ts', '**/*.tsx'],
+    versionFrom: 'package.json', packageName: 'bun',
+    contextHint: 'Bun: fast all-in-one JavaScript runtime, package manager, and bundler',
   },
   // Build tools
   {
