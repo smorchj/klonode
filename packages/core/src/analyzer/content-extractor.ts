@@ -9,6 +9,7 @@
 import { readFileSync } from 'fs';
 import { join, extname } from 'path';
 import type { ScanEntry } from './scanner.js';
+import { sanitizeForContext } from '../security/sanitize.js';
 
 export interface FileExport {
   name: string;
@@ -323,9 +324,13 @@ function inferFilePurpose(
   const parts: string[] = [];
 
   // Try to extract first JSDoc/comment block as description
+  // Sanitize it — comments are attacker-controlled and a direct prompt injection surface
   const firstComment = extractFirstComment(content);
   if (firstComment) {
-    parts.push(firstComment);
+    const sanitized = sanitizeForContext(firstComment, 80);
+    if (sanitized.text) {
+      parts.push(sanitized.text);
+    }
   }
 
   // API route file
@@ -399,9 +404,12 @@ function extractFirstComment(content: string): string {
 function inferComponentPurpose(content: string, name: string): string {
   const parts: string[] = [];
 
-  // Check for page metadata
+  // Check for page metadata — sanitize, title is attacker-controlled
   const titleMatch = content.match(/(?:title|<h1|<title)[^>]*>([^<]+)/i);
-  if (titleMatch) parts.push(titleMatch[1].trim());
+  if (titleMatch) {
+    const sanitized = sanitizeForContext(titleMatch[1].trim(), 60);
+    if (sanitized.text) parts.push(sanitized.text);
+  }
 
   // Check for form/CRUD patterns
   if (content.includes('onSubmit') || content.includes('handleSubmit')) parts.push('form');
