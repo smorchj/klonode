@@ -9,12 +9,29 @@
 import { readFileSync } from 'fs';
 import { join, extname } from 'path';
 import type { ScanEntry } from './scanner.js';
-import { sanitizeForContext } from '../security/sanitize.js';
+import { sanitizeForContext, sanitizeFilename } from '../security/sanitize.js';
 
 export interface FileExport {
   name: string;
   kind: 'function' | 'class' | 'type' | 'interface' | 'const' | 'component' | 'enum';
   signature?: string; // e.g., "(userId: string) => Promise<User>"
+}
+
+/**
+ * Sanitize an export name — attackers can embed injection text in
+ * function/class/variable names that later appear in CONTEXT.md.
+ * Uses sanitizeFilename (max 60 chars) since names are short identifiers.
+ */
+function sanitizeExportName(name: string): string {
+  return sanitizeFilename(name) || name;
+}
+
+/**
+ * Sanitize an export signature — attacker-controlled params or type annotations.
+ */
+function sanitizeExportSignature(sig: string): string {
+  const result = sanitizeForContext(sig, 60);
+  return result.text;
 }
 
 export interface ApiRoute {
@@ -148,63 +165,70 @@ function extractExports(content: string, fileName: string): FileExport[] {
   // TypeScript/JavaScript exports
   // export function name(...)
   for (const m of content.matchAll(/export\s+(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
       const params = m[2].trim();
       exports.push({
-        name: m[1],
+        name,
         kind: 'function',
-        signature: params ? `(${truncate(params, 60)})` : '()',
+        signature: params ? `(${sanitizeExportSignature(truncate(params, 60))})` : '()',
       });
     }
   }
 
   // export const name = ...
   for (const m of content.matchAll(/export\s+const\s+(\w+)\s*[=:]/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'const' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'const' });
     }
   }
 
   // export class name
   for (const m of content.matchAll(/export\s+(?:default\s+)?class\s+(\w+)/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'class' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'class' });
     }
   }
 
   // export interface name
   for (const m of content.matchAll(/export\s+interface\s+(\w+)/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'interface' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'interface' });
     }
   }
 
   // export type name
   for (const m of content.matchAll(/export\s+type\s+(\w+)\s*[=<{]/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'type' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'type' });
     }
   }
 
   // export enum name
   for (const m of content.matchAll(/export\s+(?:const\s+)?enum\s+(\w+)/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'enum' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'enum' });
     }
   }
 
   // React/Svelte components: export default function ComponentName
   if (fileName.match(/\.(tsx|jsx|svelte)$/)) {
     for (const m of content.matchAll(/export\s+default\s+function\s+(\w+)/g)) {
-      if (!seen.has(m[1]) && m[1][0] === m[1][0].toUpperCase()) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'component' });
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name) && name[0] === name[0].toUpperCase()) {
+        seen.add(name);
+        exports.push({ name, kind: 'component' });
       }
     }
   }
@@ -214,29 +238,32 @@ function extractExports(content: string, fileName: string): FileExport[] {
     // def name( or async def name( — anchored to start of line
     for (const m of content.matchAll(/^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)/gm)) {
       if (m[1].startsWith('_')) continue; // private by convention
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
         const params = m[2].trim();
         exports.push({
-          name: m[1],
+          name,
           kind: 'function',
-          signature: params ? `(${truncate(params, 60)})` : '()',
+          signature: params ? `(${sanitizeExportSignature(truncate(params, 60))})` : '()',
         });
       }
     }
     // class Name(BaseClass) — anchored to start of line
     for (const m of content.matchAll(/^class\s+(\w+)/gm)) {
       if (m[1].startsWith('_')) continue;
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'class' });
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
+        exports.push({ name, kind: 'class' });
       }
     }
     // Module-level constants (uppercase names at start of line): NAME = or NAME: type =
     for (const m of content.matchAll(/^([A-Z][A-Z0-9_]+)\s*(?::\s*\w+\s*)?=/gm)) {
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'const' });
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
+        exports.push({ name, kind: 'const' });
       }
     }
   }
@@ -245,17 +272,18 @@ function extractExports(content: string, fileName: string): FileExport[] {
   if (fileName.endsWith('.java')) {
     // public class/interface/enum Name
     for (const m of content.matchAll(/public\s+(?:abstract\s+|final\s+|sealed\s+)?(class|interface|enum|record)\s+(\w+)/g)) {
-      if (!seen.has(m[2])) {
-        seen.add(m[2]);
+      const name = sanitizeExportName(m[2]);
+      if (!seen.has(name)) {
+        seen.add(name);
         const kind = m[1] === 'class' || m[1] === 'record' ? 'class'
           : m[1] === 'interface' ? 'interface'
           : 'enum';
-        exports.push({ name: m[2], kind });
+        exports.push({ name, kind });
       }
     }
     // public [static] [final] Type name(args) — methods
     for (const m of content.matchAll(/public\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\s\[\]]+?)\s+(\w+)\s*\(([^)]*)\)\s*(?:throws[^{]*)?\{/g)) {
-      const name = m[1];
+      const name = sanitizeExportName(m[1]);
       if (seen.has(name)) continue;
       // Skip constructors (same name as class) and keywords
       if (['if', 'for', 'while', 'switch', 'return', 'class', 'new'].includes(name)) continue;
@@ -264,14 +292,15 @@ function extractExports(content: string, fileName: string): FileExport[] {
       exports.push({
         name,
         kind: 'function',
-        signature: params ? `(${truncate(params, 60)})` : '()',
+        signature: params ? `(${sanitizeExportSignature(truncate(params, 60))})` : '()',
       });
     }
     // public static final TYPE NAME = ... — constants
     for (const m of content.matchAll(/public\s+static\s+final\s+\w+(?:\s*<[^>]+>)?(?:\s*\[\])?\s+(\w+)\s*=/g)) {
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'const' });
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
+        exports.push({ name, kind: 'const' });
       }
     }
   }
@@ -280,35 +309,38 @@ function extractExports(content: string, fileName: string): FileExport[] {
   if (fileName.endsWith('.rb')) {
     // module Name — allow leading whitespace (nested modules)
     for (const m of content.matchAll(/^\s*module\s+([A-Z]\w*)/gm)) {
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'class' }); // no 'module' kind, map to class
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
+        exports.push({ name, kind: 'class' }); // no 'module' kind, map to class
       }
     }
     // class Name [< Parent] — allow leading whitespace (classes inside modules)
     for (const m of content.matchAll(/^\s*class\s+([A-Z]\w*)/gm)) {
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'class' });
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
+        exports.push({ name, kind: 'class' });
       }
     }
     // def method_name(args) — top-level or class-level methods
     for (const m of content.matchAll(/^\s*def\s+(?:self\.)?([a-z_]\w*[?!]?)\s*(?:\(([^)]*)\))?/gm)) {
-      const name = m[1];
+      const name = sanitizeExportName(m[1]);
       if (seen.has(name)) continue;
       seen.add(name);
       const params = (m[2] || '').trim();
       exports.push({
         name,
         kind: 'function',
-        signature: params ? `(${truncate(params, 60)})` : '()',
+        signature: params ? `(${sanitizeExportSignature(truncate(params, 60))})` : '()',
       });
     }
     // Constants (uppercase names) — allow leading whitespace for constants inside modules
     for (const m of content.matchAll(/^\s*([A-Z][A-Z0-9_]+)\s*=/gm)) {
-      if (!seen.has(m[1])) {
-        seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'const' });
+      const name = sanitizeExportName(m[1]);
+      if (!seen.has(name)) {
+        seen.add(name);
+        exports.push({ name, kind: 'const' });
       }
     }
   }
@@ -534,7 +566,7 @@ function extractPrismaSchema(content: string): FileExport[] {
 
   // Extract models: model User { ... }
   for (const m of content.matchAll(/model\s+(\w+)\s*\{([^}]*)\}/g)) {
-    const name = m[1];
+    const name = sanitizeExportName(m[1]);
     if (seen.has(name)) continue;
     seen.add(name);
 
@@ -556,29 +588,30 @@ function extractPrismaSchema(content: string): FileExport[] {
     }
 
     const sig = fields.length > 0
-      ? `{ ${fields.slice(0, 6).join(', ')}${fields.length > 6 ? `, +${fields.length - 6}` : ''} }${relations.length > 0 ? ` → ${relations.join(', ')}` : ''}`
+      ? sanitizeExportSignature(`{ ${fields.slice(0, 6).join(', ')}${fields.length > 6 ? `, +${fields.length - 6}` : ''} }${relations.length > 0 ? ` → ${relations.join(', ')}` : ''}`)
       : undefined;
     exports.push({ name, kind: 'type', signature: sig });
   }
 
   // Extract enums: enum Role { ... }
   for (const m of content.matchAll(/enum\s+(\w+)\s*\{([^}]*)\}/g)) {
-    const name = m[1];
+    const name = sanitizeExportName(m[1]);
     if (seen.has(name)) continue;
     seen.add(name);
 
     const values = m[2].split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'));
     const sig = values.length > 0
-      ? `{ ${values.slice(0, 5).join(', ')}${values.length > 5 ? `, +${values.length - 5}` : ''} }`
+      ? sanitizeExportSignature(`{ ${values.slice(0, 5).join(', ')}${values.length > 5 ? `, +${values.length - 5}` : ''} }`)
       : undefined;
     exports.push({ name, kind: 'enum', signature: sig });
   }
 
   // Extract generators and datasources for patterns
   for (const m of content.matchAll(/generator\s+(\w+)\s*\{/g)) {
-    if (!seen.has(`gen:${m[1]}`)) {
-      seen.add(`gen:${m[1]}`);
-      exports.push({ name: m[1], kind: 'const', signature: 'generator' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(`gen:${name}`)) {
+      seen.add(`gen:${name}`);
+      exports.push({ name, kind: 'const', signature: 'generator' });
     }
   }
 
@@ -591,25 +624,28 @@ function extractGraphqlSchema(content: string): FileExport[] {
 
   // Types: type Query { ... }, type User { ... }
   for (const m of content.matchAll(/type\s+(\w+)\s*(?:implements\s+\w+)?\s*\{/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'type' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'type' });
     }
   }
 
   // Input types
   for (const m of content.matchAll(/input\s+(\w+)\s*\{/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'interface' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'interface' });
     }
   }
 
   // Enums
   for (const m of content.matchAll(/enum\s+(\w+)\s*\{/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'enum' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'enum' });
     }
   }
 
@@ -622,17 +658,19 @@ function extractSqlSchema(content: string): FileExport[] {
 
   // CREATE TABLE
   for (const m of content.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`]?(\w+)["'`]?/gi)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'type', signature: 'table' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'type', signature: 'table' });
     }
   }
 
   // CREATE INDEX
   for (const m of content.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+["'`]?(\w+)["'`]?/gi)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'const', signature: 'index' });
+    const name = sanitizeExportName(m[1]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      exports.push({ name, kind: 'const', signature: 'index' });
     }
   }
 
@@ -646,19 +684,20 @@ function inferSchemaFilePurpose(fileName: string, ext: string, exports: FileExpo
 
   switch (ext) {
     case '.prisma':
-      if (types.length > 0) parts.push(`Prisma models: ${types.map(t => t.name).join(', ')}`);
-      if (enums.length > 0) parts.push(`Enums: ${enums.map(e => e.name).join(', ')}`);
+      if (types.length > 0) parts.push(`Prisma models: ${types.map(t => sanitizeExportName(t.name)).join(', ')}`);
+      if (enums.length > 0) parts.push(`Enums: ${enums.map(e => sanitizeExportName(e.name)).join(', ')}`);
       break;
     case '.graphql':
     case '.gql':
-      if (types.length > 0) parts.push(`GraphQL types: ${types.map(t => t.name).join(', ')}`);
+      if (types.length > 0) parts.push(`GraphQL types: ${types.map(t => sanitizeExportName(t.name)).join(', ')}`);
       break;
     case '.sql':
-      if (types.length > 0) parts.push(`Tables: ${types.map(t => t.name).join(', ')}`);
+      if (types.length > 0) parts.push(`Tables: ${types.map(t => sanitizeExportName(t.name)).join(', ')}`);
       break;
   }
 
-  return parts.join(' · ') || `${ext.slice(1)} schema`;
+  const raw = parts.join(' · ') || `${ext.slice(1)} schema`;
+  return sanitizeForContext(raw, 80).text;
 }
 
 function truncate(s: string, maxLen: number): string {

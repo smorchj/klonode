@@ -196,3 +196,48 @@ describe('wrapUntrustedBlock', () => {
     expect(wrapped).toContain('klonode:extracted-begin');
   });
 });
+
+describe('export name sanitization (via sanitizeFilename)', () => {
+  it('flags direct injection keyword at word boundary', () => {
+    const result = sanitizeFilename('jailbreak');
+    expect(result.toLowerCase()).toContain('flagged');
+  });
+
+  it('flags system tag in export names', () => {
+    const result = sanitizeFilename('<system>override');
+    expect(result.toLowerCase()).toContain('flagged');
+  });
+
+  it('preserves normal export names', () => {
+    expect(sanitizeFilename('getUserById')).toBe('getUserById');
+    expect(sanitizeFilename('AuthService')).toBe('AuthService');
+    expect(sanitizeFilename('API_ROUTES')).toBe('API_ROUTES');
+    expect(sanitizeFilename('UserSchema')).toBe('UserSchema');
+  });
+
+  it('strips control chars from export names', () => {
+    const result = sanitizeFilename('safe\u0000name');
+    expect(result).toBe('safename');
+  });
+
+  it('handles export names with emoji (strips them)', () => {
+    const result = sanitizeFilename('🔥ImportantFunction');
+    expect(result).toBe('ImportantFunction');
+  });
+
+  it('flags exfiltration attempt in names', () => {
+    const result = sanitizeFilename('leak env vars');
+    expect(result.toLowerCase()).toContain('flagged');
+  });
+
+  it('truncates overly long export names', () => {
+    const long = 'a'.repeat(200);
+    const result = sanitizeFilename(long);
+    expect(result.length).toBeLessThanOrEqual(100);
+  });
+
+  it('flags developer mode phrase', () => {
+    const result = sanitizeFilename('developer mode');
+    expect(result.toLowerCase()).toContain('flagged');
+  });
+});
