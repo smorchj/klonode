@@ -9,7 +9,41 @@
 import { readFileSync } from 'fs';
 import { join, extname } from 'path';
 import type { ScanEntry } from './scanner.js';
-import { sanitizeForContext } from '../security/sanitize.js';
+import { sanitizeForContext, sanitizeFilename } from '../security/sanitize.js';
+
+/**
+ * Sanitize an export identifier (function/class/type name) before echoing it
+ * into CONTEXT.md.
+ *
+ * The capture regexes use `\w+`, which already excludes most attack characters,
+ * but a name like `IgnoreAllPreviousInstructions` would still pass through and
+ * land verbatim in the model context. To catch that, we split camelCase /
+ * PascalCase / snake_case into space-separated words and run them through the
+ * full injection scanner. If the split form is flagged, the export is replaced
+ * with `[flagged]`. Otherwise the original name is passed through the filename
+ * sanitizer (which strips zero-width chars, control chars, bidi overrides).
+ */
+function sanitizeExportName(name: string): string {
+  if (!name) return '[empty]';
+  const splitForCheck = name
+    .replace(/_+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+  const result = sanitizeForContext(splitForCheck, 200);
+  if (result.flagged) return '[flagged]';
+  const cleaned = sanitizeFilename(name);
+  return cleaned || '[empty]';
+}
+
+/**
+ * Sanitize an export signature (parameter list, field set, etc.) before
+ * echoing it into CONTEXT.md. Signatures are captured with permissive regexes
+ * like `[^)]*`, so they are a much bigger injection surface than names.
+ */
+function sanitizeExportSignature(sig: string): string {
+  if (!sig) return '';
+  return sanitizeForContext(sig, 80).text;
+}
 
 export interface FileExport {
   name: string;
@@ -151,10 +185,11 @@ function extractExports(content: string, fileName: string): FileExport[] {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
       const params = m[2].trim();
+      const safeParams = sanitizeExportSignature(params);
       exports.push({
-        name: m[1],
+        name: sanitizeExportName(m[1]),
         kind: 'function',
-        signature: params ? `(${truncate(params, 60)})` : '()',
+        signature: safeParams ? `(${safeParams})` : '()',
       });
     }
   }
@@ -163,7 +198,7 @@ function extractExports(content: string, fileName: string): FileExport[] {
   for (const m of content.matchAll(/export\s+const\s+(\w+)\s*[=:]/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'const' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
     }
   }
 
@@ -171,7 +206,7 @@ function extractExports(content: string, fileName: string): FileExport[] {
   for (const m of content.matchAll(/export\s+(?:default\s+)?class\s+(\w+)/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'class' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'class' });
     }
   }
 
@@ -179,7 +214,7 @@ function extractExports(content: string, fileName: string): FileExport[] {
   for (const m of content.matchAll(/export\s+interface\s+(\w+)/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'interface' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'interface' });
     }
   }
 
@@ -187,7 +222,7 @@ function extractExports(content: string, fileName: string): FileExport[] {
   for (const m of content.matchAll(/export\s+type\s+(\w+)\s*[=<{]/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'type' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'type' });
     }
   }
 
@@ -195,7 +230,7 @@ function extractExports(content: string, fileName: string): FileExport[] {
   for (const m of content.matchAll(/export\s+(?:const\s+)?enum\s+(\w+)/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'enum' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'enum' });
     }
   }
 
@@ -204,7 +239,7 @@ function extractExports(content: string, fileName: string): FileExport[] {
     for (const m of content.matchAll(/export\s+default\s+function\s+(\w+)/g)) {
       if (!seen.has(m[1]) && m[1][0] === m[1][0].toUpperCase()) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'component' });
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'component' });
       }
     }
   }
@@ -217,10 +252,11 @@ function extractExports(content: string, fileName: string): FileExport[] {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
         const params = m[2].trim();
+        const safeParams = sanitizeExportSignature(params);
         exports.push({
-          name: m[1],
+          name: sanitizeExportName(m[1]),
           kind: 'function',
-          signature: params ? `(${truncate(params, 60)})` : '()',
+          signature: safeParams ? `(${safeParams})` : '()',
         });
       }
     }
@@ -229,14 +265,14 @@ function extractExports(content: string, fileName: string): FileExport[] {
       if (m[1].startsWith('_')) continue;
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'class' });
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'class' });
       }
     }
     // Module-level constants (uppercase names at start of line): NAME = or NAME: type =
     for (const m of content.matchAll(/^([A-Z][A-Z0-9_]+)\s*(?::\s*\w+\s*)?=/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'const' });
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
       }
     }
   }
@@ -250,28 +286,29 @@ function extractExports(content: string, fileName: string): FileExport[] {
         const kind = m[1] === 'class' || m[1] === 'record' ? 'class'
           : m[1] === 'interface' ? 'interface'
           : 'enum';
-        exports.push({ name: m[2], kind });
+        exports.push({ name: sanitizeExportName(m[2]), kind });
       }
     }
     // public [static] [final] Type name(args) — methods
     for (const m of content.matchAll(/public\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\s\[\]]+?)\s+(\w+)\s*\(([^)]*)\)\s*(?:throws[^{]*)?\{/g)) {
-      const name = m[1];
-      if (seen.has(name)) continue;
+      const rawName = m[1];
+      if (seen.has(rawName)) continue;
       // Skip constructors (same name as class) and keywords
-      if (['if', 'for', 'while', 'switch', 'return', 'class', 'new'].includes(name)) continue;
-      seen.add(name);
+      if (['if', 'for', 'while', 'switch', 'return', 'class', 'new'].includes(rawName)) continue;
+      seen.add(rawName);
       const params = m[2].trim();
+      const safeParams = sanitizeExportSignature(params);
       exports.push({
-        name,
+        name: sanitizeExportName(rawName),
         kind: 'function',
-        signature: params ? `(${truncate(params, 60)})` : '()',
+        signature: safeParams ? `(${safeParams})` : '()',
       });
     }
     // public static final TYPE NAME = ... — constants
     for (const m of content.matchAll(/public\s+static\s+final\s+\w+(?:\s*<[^>]+>)?(?:\s*\[\])?\s+(\w+)\s*=/g)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'const' });
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
       }
     }
   }
@@ -282,33 +319,34 @@ function extractExports(content: string, fileName: string): FileExport[] {
     for (const m of content.matchAll(/^\s*module\s+([A-Z]\w*)/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'class' }); // no 'module' kind, map to class
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'class' }); // no 'module' kind, map to class
       }
     }
     // class Name [< Parent] — allow leading whitespace (classes inside modules)
     for (const m of content.matchAll(/^\s*class\s+([A-Z]\w*)/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'class' });
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'class' });
       }
     }
     // def method_name(args) — top-level or class-level methods
     for (const m of content.matchAll(/^\s*def\s+(?:self\.)?([a-z_]\w*[?!]?)\s*(?:\(([^)]*)\))?/gm)) {
-      const name = m[1];
-      if (seen.has(name)) continue;
-      seen.add(name);
+      const rawName = m[1];
+      if (seen.has(rawName)) continue;
+      seen.add(rawName);
       const params = (m[2] || '').trim();
+      const safeParams = sanitizeExportSignature(params);
       exports.push({
-        name,
+        name: sanitizeExportName(rawName),
         kind: 'function',
-        signature: params ? `(${truncate(params, 60)})` : '()',
+        signature: safeParams ? `(${safeParams})` : '()',
       });
     }
     // Constants (uppercase names) — allow leading whitespace for constants inside modules
     for (const m of content.matchAll(/^\s*([A-Z][A-Z0-9_]+)\s*=/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
-        exports.push({ name: m[1], kind: 'const' });
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
       }
     }
   }
@@ -534,9 +572,9 @@ function extractPrismaSchema(content: string): FileExport[] {
 
   // Extract models: model User { ... }
   for (const m of content.matchAll(/model\s+(\w+)\s*\{([^}]*)\}/g)) {
-    const name = m[1];
-    if (seen.has(name)) continue;
-    seen.add(name);
+    const rawName = m[1];
+    if (seen.has(rawName)) continue;
+    seen.add(rawName);
 
     // Extract field names and relations
     const fields: string[] = [];
@@ -556,29 +594,29 @@ function extractPrismaSchema(content: string): FileExport[] {
     }
 
     const sig = fields.length > 0
-      ? `{ ${fields.slice(0, 6).join(', ')}${fields.length > 6 ? `, +${fields.length - 6}` : ''} }${relations.length > 0 ? ` → ${relations.join(', ')}` : ''}`
+      ? sanitizeExportSignature(`{ ${fields.slice(0, 6).join(', ')}${fields.length > 6 ? `, +${fields.length - 6}` : ''} }${relations.length > 0 ? ` -> ${relations.join(', ')}` : ''}`)
       : undefined;
-    exports.push({ name, kind: 'type', signature: sig });
+    exports.push({ name: sanitizeExportName(rawName), kind: 'type', signature: sig });
   }
 
   // Extract enums: enum Role { ... }
   for (const m of content.matchAll(/enum\s+(\w+)\s*\{([^}]*)\}/g)) {
-    const name = m[1];
-    if (seen.has(name)) continue;
-    seen.add(name);
+    const rawName = m[1];
+    if (seen.has(rawName)) continue;
+    seen.add(rawName);
 
     const values = m[2].split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'));
     const sig = values.length > 0
-      ? `{ ${values.slice(0, 5).join(', ')}${values.length > 5 ? `, +${values.length - 5}` : ''} }`
+      ? sanitizeExportSignature(`{ ${values.slice(0, 5).join(', ')}${values.length > 5 ? `, +${values.length - 5}` : ''} }`)
       : undefined;
-    exports.push({ name, kind: 'enum', signature: sig });
+    exports.push({ name: sanitizeExportName(rawName), kind: 'enum', signature: sig });
   }
 
   // Extract generators and datasources for patterns
   for (const m of content.matchAll(/generator\s+(\w+)\s*\{/g)) {
     if (!seen.has(`gen:${m[1]}`)) {
       seen.add(`gen:${m[1]}`);
-      exports.push({ name: m[1], kind: 'const', signature: 'generator' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'const', signature: 'generator' });
     }
   }
 
@@ -593,7 +631,7 @@ function extractGraphqlSchema(content: string): FileExport[] {
   for (const m of content.matchAll(/type\s+(\w+)\s*(?:implements\s+\w+)?\s*\{/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'type' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'type' });
     }
   }
 
@@ -601,7 +639,7 @@ function extractGraphqlSchema(content: string): FileExport[] {
   for (const m of content.matchAll(/input\s+(\w+)\s*\{/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'interface' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'interface' });
     }
   }
 
@@ -609,7 +647,7 @@ function extractGraphqlSchema(content: string): FileExport[] {
   for (const m of content.matchAll(/enum\s+(\w+)\s*\{/g)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'enum' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'enum' });
     }
   }
 
@@ -624,7 +662,7 @@ function extractSqlSchema(content: string): FileExport[] {
   for (const m of content.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`]?(\w+)["'`]?/gi)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'type', signature: 'table' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'type', signature: 'table' });
     }
   }
 
@@ -632,7 +670,7 @@ function extractSqlSchema(content: string): FileExport[] {
   for (const m of content.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+["'`]?(\w+)["'`]?/gi)) {
     if (!seen.has(m[1])) {
       seen.add(m[1]);
-      exports.push({ name: m[1], kind: 'const', signature: 'index' });
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'const', signature: 'index' });
     }
   }
 
