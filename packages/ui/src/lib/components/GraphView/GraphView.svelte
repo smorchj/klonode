@@ -4,6 +4,7 @@
   import { t } from '../../stores/i18n';
   import { routingGraphToFlow } from '../../utils/tree-to-graph';
   import { simulatorStore, activePathIds, pulsingNodeId, runSimulation, resetSimulation } from '../../stores/simulator';
+  import { activeNodePaths } from '../../stores/activity';
 
   let expandedGroups = new Set<string>();
   let zoom = 0.5;
@@ -299,6 +300,12 @@
                 {@const isOnPath = $activePathIds.has(node.id)}
                 {@const isPulsing = $pulsingNodeId === node.id}
                 {@const dimmed = simActive && !isOnPath}
+                {@const activity = $activeNodePaths.get(node.data.path ?? '')}
+                {@const activityColor = activity?.kind === 'write' ? '#10b981'
+                  : activity?.kind === 'command' ? '#f59e0b'
+                  : activity?.kind === 'search' ? '#a78bfa'
+                  : activity?.kind === 'read' ? '#3b82f6'
+                  : null}
                 {@const heatBg = $showHeatmap && node.data.heatValue > 0
                   ? `rgba(245, 158, 11, ${node.data.heatValue * 0.4})`
                   : 'rgba(15, 15, 20, 0.85)'}
@@ -325,10 +332,21 @@
                   <!-- Node body -->
                   <rect
                     width="220" height="70" rx="10"
-                    fill={isPulsing ? 'rgba(34, 211, 238, 0.15)' : isOnPath ? 'rgba(34, 211, 238, 0.08)' : heatBg}
-                    stroke={isPulsing ? '#22d3ee' : isOnPath ? '#22d3ee' : isSelected ? '#60a5fa' : color}
-                    stroke-width={isPulsing ? 3 : isOnPath ? 2 : isSelected ? 2.5 : 1.2}
+                    fill={activityColor ? `${activityColor}22` : isPulsing ? 'rgba(34, 211, 238, 0.15)' : isOnPath ? 'rgba(34, 211, 238, 0.08)' : heatBg}
+                    stroke={activityColor || (isPulsing ? '#22d3ee' : isOnPath ? '#22d3ee' : isSelected ? '#60a5fa' : color)}
+                    stroke-width={activityColor ? 3 : isPulsing ? 3 : isOnPath ? 2 : isSelected ? 2.5 : 1.2}
                   />
+                  {#if activityColor}
+                    <!-- Pulsing activity ring -->
+                    <rect
+                      width="220" height="70" rx="10"
+                      fill="none"
+                      stroke={activityColor}
+                      stroke-width="2"
+                      opacity="0.6"
+                      class="activity-ring"
+                    />
+                  {/if}
                   <!-- Layer color accent bar -->
                   <rect
                     x="0" y="0" width="4" height="70" rx="2"
@@ -596,6 +614,14 @@
   :global(.graph-node:hover rect) { filter: brightness(1.2); }
   :global(.graph-node.dimmed) { opacity: 0.2; }
   :global(.graph-node.pulsing) { animation: node-pulse 1s ease-in-out infinite; }
+  :global(.activity-ring) {
+    animation: activity-ring-pulse 1.4s ease-in-out infinite;
+    transform-origin: center;
+  }
+  @keyframes activity-ring-pulse {
+    0%, 100% { opacity: 0.25; }
+    50% { opacity: 0.7; }
+  }
   :global(.edge-active) { animation: edge-flow 1.5s linear infinite; stroke-dasharray: 8 4; }
 
   @keyframes node-pulse {

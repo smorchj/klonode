@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { RoutingNode, RoutingGraph } from '../../types';
   import { selectedNodeId, showHeatmap } from '../../stores/graph';
+  import { activeNodePaths, isPathActive } from '../../stores/activity';
 
   export let node: RoutingNode;
   export let graph: RoutingGraph;
@@ -12,6 +13,9 @@
     .filter((n): n is RoutingNode => n !== undefined);
   $: isSelected = $selectedNodeId === node.id;
   $: hasContext = node.contextFile !== null;
+  // Auto-expand when a descendant becomes active so the activity is visible
+  $: active = isPathActive($activeNodePaths, node.path);
+  $: if (active && !expanded) expanded = true;
 
   const layerIcons: Record<number, string> = {
     0: '⟐',
@@ -38,8 +42,18 @@
     class="node-row"
     class:selected={isSelected}
     class:has-context={hasContext}
+    class:active-by-ai={!!active}
+    class:active-read={active?.kind === 'read'}
+    class:active-write={active?.kind === 'write'}
+    class:active-command={active?.kind === 'command'}
+    class:active-search={active?.kind === 'search'}
     on:click={select}
   >
+    {#if active}
+      <span class="activity-indicator" title="Claude is working here">
+        {#if active.kind === 'write'}●{:else if active.kind === 'command'}▸{:else}○{/if}
+      </span>
+    {/if}
     {#if children.length > 0}
       <!-- svelte-ignore a11y-click-events-have-key-events -->
       <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -155,5 +169,45 @@
   .children {
     border-left: 1px solid rgba(107, 114, 128, 0.2);
     margin-left: calc(var(--indent) + 18px);
+  }
+
+  /* Active-by-AI highlighting — nodes Claude is currently touching */
+  .node-row.active-by-ai {
+    animation: activity-pulse 2s ease-out;
+  }
+  .node-row.active-read {
+    background: rgba(59, 130, 246, 0.15);
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+  }
+  .node-row.active-write {
+    background: rgba(16, 185, 129, 0.15);
+    box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.4);
+  }
+  .node-row.active-command {
+    background: rgba(245, 158, 11, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+  }
+  .node-row.active-search {
+    background: rgba(167, 139, 250, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.3);
+  }
+
+  .activity-indicator {
+    font-size: 10px;
+    color: #a78bfa;
+    animation: activity-blink 1.2s infinite;
+  }
+  .node-row.active-read .activity-indicator { color: #3b82f6; }
+  .node-row.active-write .activity-indicator { color: #10b981; }
+  .node-row.active-command .activity-indicator { color: #f59e0b; }
+
+  @keyframes activity-pulse {
+    0% { transform: scale(1); }
+    10% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+  }
+  @keyframes activity-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
   }
 </style>
