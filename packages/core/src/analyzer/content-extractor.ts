@@ -351,6 +351,46 @@ function extractExports(content: string, fileName: string): FileExport[] {
     }
   }
 
+  // PHP functions, classes, interfaces, traits, and constants
+  if (fileName.endsWith('.php')) {
+    // function name(...) or public function name(...) — allow leading whitespace for methods
+    for (const m of content.matchAll(/^\s*(?:public\s+)?function\s+(\w+)\s*\(([^)]*)\)/gm)) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      const params = m[2].trim();
+      const safeParams = sanitizeExportSignature(params);
+      exports.push({
+        name: sanitizeExportName(m[1]),
+        kind: 'function',
+        signature: safeParams ? `(${safeParams})` : '()',
+      });
+    }
+    // class Name [extends Parent] [implements Interface]
+    for (const m of content.matchAll(/^\s*class\s+(\w+)/gm)) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'class' });
+    }
+    // interface Name
+    for (const m of content.matchAll(/^\s*interface\s+(\w+)/gm)) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'interface' });
+    }
+    // trait Name — no 'trait' kind, map to 'class'
+    for (const m of content.matchAll(/^\s*trait\s+(\w+)/gm)) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'class' });
+    }
+    // const NAME = ...
+    for (const m of content.matchAll(/^\s*const\s+(\w+)\s*=/gm)) {
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
+    }
+  }
+
   return exports;
 }
 
