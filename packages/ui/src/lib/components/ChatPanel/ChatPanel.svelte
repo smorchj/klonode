@@ -9,6 +9,8 @@
     CONTEXT_DEPTH_LABELS,
     type ContextDepth as CtxDepth,
   } from '../../stores/agents';
+  import { recordActivity, clearActivity } from '../../stores/activity';
+  import { graphStore } from '../../stores/graph';
 
   let inputValue = '';
   let messagesEl: HTMLDivElement;
@@ -132,6 +134,8 @@
                     break;
                   case 'tool':
                     activityLog = [...activityLog, { tool: data.tool, input: data.input, time: new Date() }];
+                    // Also push to the shared activity store so tree/graph can highlight
+                    recordActivity(data.tool, data.input, repoPath);
                     await tick();
                     scrollToBottom();
                     break;
@@ -565,37 +569,29 @@ Rules:
             {/if}
 
             {#if msg.loading}
-              <div class="loading-row">
-                <div class="loading-dots">
-                  <span></span><span></span><span></span>
-                </div>
-                {#if msg.routedFiles && msg.routedFiles.length > 0}
-                  <span class="routing-hint">Rutet {msg.routedFiles.length} filer...</span>
-                {/if}
-                {#if activityLog.length > 0}
-                  <span class="activity-count">{activityLog.length} operasjoner</span>
-                {/if}
-              </div>
-              <!-- Live streaming text preview -->
-              {#if streamingText}
-                <div class="streaming-preview">{streamingText.slice(-200)}</div>
+              <!-- Routing info -->
+              {#if msg.routedFiles && msg.routedFiles.length > 0}
+                <div class="work-meta">Rutet {msg.routedFiles.length} filer</div>
               {/if}
-              <!-- Expandable activity log -->
-              {#if activityLog.length > 0}
-                <div class="activity-section">
-                  <button class="activity-toggle" on:click={() => showActivity = !showActivity}>
-                    {showActivity ? 'v' : '>'} Aktivitet ({activityLog.length})
-                  </button>
-                  {#if showActivity}
-                    <div class="activity-list">
-                      {#each activityLog as entry}
-                        <div class="activity-item">
-                          <span class="activity-tool">{entry.tool}</span>
-                          <span class="activity-input">{entry.input}</span>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
+
+              <!-- Inline activity stream — every tool call shown as its own line -->
+              {#each activityLog as entry}
+                <div class="work-tool">
+                  <span class="work-tool-name">{entry.tool}</span>
+                  <span class="work-tool-input">{entry.input}</span>
+                </div>
+              {/each}
+
+              <!-- Live streaming text — full, not truncated -->
+              {#if streamingText}
+                <div class="work-text">{streamingText}</div>
+              {/if}
+
+              <!-- Thinking indicator (only when no activity yet) -->
+              {#if activityLog.length === 0 && !streamingText}
+                <div class="work-thinking">
+                  <span></span><span></span><span></span>
+                  <span class="work-thinking-label">tenker</span>
                 </div>
               {/if}
             {:else}
@@ -1050,43 +1046,48 @@ Rules:
     40% { opacity: 1; transform: scale(1); }
   }
 
-  /* Activity log */
-  .activity-count {
-    font-size: 9px; color: #a78bfa; font-weight: 600;
-    background: rgba(167, 139, 250, 0.1); padding: 1px 6px; border-radius: 3px;
+  /* Work stream — Claude Code style */
+  .work-meta {
+    font-size: 10px; color: #6b7280; font-style: italic;
+    margin-bottom: 4px;
   }
-  .streaming-preview {
-    font-size: 10px; color: #6b7280; margin-top: 4px;
-    font-family: 'JetBrains Mono', monospace;
-    white-space: pre-wrap; word-break: break-all;
-    max-height: 40px; overflow: hidden;
-    opacity: 0.7;
+  .work-tool {
+    display: flex; gap: 6px; align-items: baseline;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    padding: 1px 0; line-height: 1.5;
+    animation: work-slide-in 0.2s ease;
   }
-  .activity-section { margin-top: 6px; }
-  .activity-toggle {
-    background: none; border: none; color: #6b7280; font-size: 10px;
-    cursor: pointer; padding: 2px 0; font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
+  .work-tool-name {
+    color: #a78bfa; font-weight: 700;
+    white-space: nowrap; flex-shrink: 0;
   }
-  .activity-toggle:hover { color: #a78bfa; }
-  .activity-list {
-    display: flex; flex-direction: column; gap: 2px;
-    margin-top: 4px; padding: 4px 8px;
-    background: rgba(10, 10, 18, 0.6); border-radius: 4px;
-    max-height: 150px; overflow-y: auto;
-    border: 1px solid #1a1a28;
+  .work-tool-input {
+    color: #9ca3af; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; min-width: 0;
   }
-  .activity-item {
-    display: flex; gap: 6px; font-size: 9px;
-    font-family: 'JetBrains Mono', monospace;
-    color: #6b7280;
+  .work-text {
+    font-size: 12px; color: #d1d5db;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(167, 139, 250, 0.1);
   }
-  .activity-tool {
-    color: #a78bfa; font-weight: 700; min-width: 36px;
-    flex-shrink: 0;
+  .work-thinking {
+    display: flex; gap: 4px; align-items: center;
+    padding: 4px 0;
   }
-  .activity-input {
-    color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  .work-thinking span:not(.work-thinking-label) {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #6b7280; animation: dot-pulse 1.2s infinite;
+  }
+  .work-thinking span:nth-child(2) { animation-delay: 0.2s; }
+  .work-thinking span:nth-child(3) { animation-delay: 0.4s; }
+  .work-thinking-label {
+    font-size: 10px; color: #6b7280; font-style: italic;
+    margin-left: 4px;
+  }
+  @keyframes work-slide-in {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
   }
 
   /* Savings banner */
