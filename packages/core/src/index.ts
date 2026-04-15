@@ -65,6 +65,10 @@ export type { ChecklistItem } from './generator/context-checklist.js';
 export { detectTools, toolsSummary } from './analyzer/tool-detector.js';
 export type { DetectedTool } from './analyzer/tool-detector.js';
 
+// Security
+export { sanitizeForContext, sanitizeFilename, wrapUntrustedBlock } from './security/sanitize.js';
+export type { SanitizeResult } from './security/sanitize.js';
+
 // Agents
 export { buildAgentRegistry, getAgentContext } from './agents/agent-registry.js';
 export type { AgentDefinition, AgentRegistry, AgentRole } from './agents/agent-registry.js';
