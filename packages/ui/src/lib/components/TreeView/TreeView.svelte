@@ -1,7 +1,56 @@
 <script lang="ts">
-  import { graphStore, topLevelNodes } from '../../stores/graph';
+  import { get } from 'svelte/store';
+  import { graphStore, selectedNodeId, topLevelNodes } from '../../stores/graph';
   import { t } from '../../stores/i18n';
   import TreeNode from './TreeNode.svelte';
+  import {
+    defineComponent,
+    defineComponentAction,
+    defineComponentState,
+  } from '../../workstation/registry';
+
+  // Register with the workstation self-introspection registry. See #64.
+  defineComponent({
+    id: 'tree-view',
+    role: 'Sidebar tree of the routing graph — shows every directory with its summary and access count',
+    parent: 'workstation-layout',
+    actions: {
+      'select-node': { args: { nodeId: 'string' } },
+      'search':      { args: { query: 'string' } },
+      'clear-search': {},
+    },
+    state: ['selected-node-id', 'search-query', 'total-files', 'total-dirs', 'has-graph'],
+  });
+
+  defineComponentAction('tree-view', 'select-node', ({ nodeId }) => {
+    if (typeof nodeId !== 'string') throw new Error('nodeId is required');
+    const graph = get(graphStore);
+    if (!graph) throw new Error('graph not loaded yet');
+    if (!graph.nodes.has(nodeId)) throw new Error(`no node with id "${nodeId}"`);
+    selectedNodeId.set(nodeId);
+    return { ok: true, selected: nodeId };
+  });
+  defineComponentAction('tree-view', 'search', ({ query }) => {
+    if (typeof query !== 'string') throw new Error('query is required');
+    searchQuery = query;
+    return { ok: true };
+  });
+  defineComponentAction('tree-view', 'clear-search', () => {
+    searchQuery = '';
+    return { ok: true };
+  });
+
+  defineComponentState('tree-view', 'selected-node-id', () => get(selectedNodeId));
+  defineComponentState('tree-view', 'search-query', () => searchQuery);
+  defineComponentState('tree-view', 'total-files', () => {
+    const g = get(graphStore);
+    return g ? g.metadata.totalFiles : 0;
+  });
+  defineComponentState('tree-view', 'total-dirs', () => {
+    const g = get(graphStore);
+    return g ? g.metadata.totalDirectories : 0;
+  });
+  defineComponentState('tree-view', 'has-graph', () => get(graphStore) !== null);
 
   let searchQuery = '';
 

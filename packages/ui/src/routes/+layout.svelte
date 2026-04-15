@@ -1,8 +1,70 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { locale, t } from '$lib/stores/i18n';
   import { viewMode } from '$lib/stores/graph';
-  import { graphStore } from '$lib/stores/graph';
-  import { pullLatest } from '$lib/stores/github';
+  import { graphStore, selectedNodeId } from '$lib/stores/graph';
+  import { pullLatest, githubStore } from '$lib/stores/github';
+  import { chatStore } from '$lib/stores/chat';
+  import { sessionsStore } from '$lib/stores/agents';
+  import { simulatorStore } from '$lib/stores/simulator';
+  import {
+    defineComponent,
+    defineComponentAction,
+    defineComponentState,
+  } from '$lib/workstation/registry';
+  import { startWorkstationSync } from '$lib/workstation/sync';
+
+  // Register the root layout as the parent of every pane, so the component
+  // tree has a single root. See #64.
+  defineComponent({
+    id: 'workstation-layout',
+    role: 'Top-level Workstation shell — hosts the view switcher and every pane',
+    actions: {
+      'set-view': { args: { mode: '"tree" | "graph" | "split" | "github"' } },
+      'pull-latest': {},
+      'toggle-locale': {},
+    },
+    state: ['view-mode', 'locale', 'has-graph', 'repo-path'],
+  });
+
+  defineComponentAction('workstation-layout', 'set-view', ({ mode }) => {
+    const allowed = ['tree', 'graph', 'split', 'github'] as const;
+    if (!allowed.includes(mode as any)) throw new Error(`mode must be one of ${allowed.join(', ')}`);
+    viewMode.set(mode as typeof allowed[number]);
+    return { ok: true };
+  });
+  defineComponentAction('workstation-layout', 'pull-latest', async () => {
+    const repoPath = get(graphStore)?.repoPath || '';
+    const result = await pullLatest(repoPath);
+    return { ok: true, message: result.message };
+  });
+  defineComponentAction('workstation-layout', 'toggle-locale', () => {
+    locale.update(l => (l === 'nb' ? 'en' : 'nb'));
+    return { ok: true, now: get(locale) };
+  });
+
+  defineComponentState('workstation-layout', 'view-mode', () => get(viewMode));
+  defineComponentState('workstation-layout', 'locale', () => get(locale));
+  defineComponentState('workstation-layout', 'has-graph', () => get(graphStore) !== null);
+  defineComponentState('workstation-layout', 'repo-path', () => get(graphStore)?.repoPath ?? null);
+
+  // Start the browser→server snapshot sync once the layout mounts. We pass
+  // every store whose value is reflected in a registered component's state
+  // reader so the sync re-pushes whenever any of them changes.
+  onMount(() => {
+    const stop = startWorkstationSync([
+      viewMode,
+      locale,
+      graphStore,
+      selectedNodeId,
+      githubStore,
+      chatStore,
+      sessionsStore,
+      simulatorStore,
+    ]);
+    return stop;
+  });
 
   let pulling = false;
   let pullMsg = '';

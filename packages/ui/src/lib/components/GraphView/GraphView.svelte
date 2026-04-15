@@ -1,10 +1,84 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import { graphStore, selectedNodeId, showHeatmap, heatmapData } from '../../stores/graph';
   import { t } from '../../stores/i18n';
   import { routingGraphToFlow } from '../../utils/tree-to-graph';
   import { simulatorStore, activePathIds, pulsingNodeId, runSimulation, resetSimulation } from '../../stores/simulator';
   import { activeNodePaths } from '../../stores/activity';
+  import {
+    defineComponent,
+    defineComponentAction,
+    defineComponentState,
+  } from '../../workstation/registry';
+
+  // Register with the workstation self-introspection registry. See #64.
+  defineComponent({
+    id: 'graph-view',
+    role: 'Interactive routing graph — nodes for directories, edges for dependencies, with zoom/pan and heatmap overlay',
+    parent: 'workstation-layout',
+    actions: {
+      'select-node':    { args: { nodeId: 'string' } },
+      'toggle-heatmap': {},
+      'run-simulation': { args: { query: 'string' } },
+      'reset-simulation': {},
+      'zoom-in':        {},
+      'zoom-out':       {},
+      'fit-to-view':    {},
+    },
+    state: [
+      'selected-node-id',
+      'heatmap-on',
+      'zoom',
+      'simulation-active',
+      'simulation-step-count',
+      'simulation-query',
+    ],
+  });
+
+  defineComponentAction('graph-view', 'select-node', ({ nodeId }) => {
+    if (typeof nodeId !== 'string') throw new Error('nodeId is required');
+    const g = get(graphStore);
+    if (!g) throw new Error('graph not loaded yet');
+    if (!g.nodes.has(nodeId)) throw new Error(`no node with id "${nodeId}"`);
+    selectedNodeId.set(nodeId);
+    return { ok: true, selected: nodeId };
+  });
+  defineComponentAction('graph-view', 'toggle-heatmap', () => {
+    showHeatmap.update(v => !v);
+    return { ok: true, now: get(showHeatmap) };
+  });
+  defineComponentAction('graph-view', 'run-simulation', async ({ query }) => {
+    if (typeof query !== 'string' || !query.trim()) throw new Error('query is required');
+    await runSimulation(query);
+    return { ok: true };
+  });
+  defineComponentAction('graph-view', 'reset-simulation', () => {
+    resetSimulation();
+    return { ok: true };
+  });
+  defineComponentAction('graph-view', 'zoom-in', () => {
+    zoom = Math.min(3, zoom * 1.2);
+    return { ok: true, zoom };
+  });
+  defineComponentAction('graph-view', 'zoom-out', () => {
+    zoom = Math.max(0.1, zoom / 1.2);
+    return { ok: true, zoom };
+  });
+  defineComponentAction('graph-view', 'fit-to-view', () => {
+    fitToView();
+    return { ok: true };
+  });
+
+  defineComponentState('graph-view', 'selected-node-id', () => get(selectedNodeId));
+  defineComponentState('graph-view', 'heatmap-on', () => get(showHeatmap));
+  defineComponentState('graph-view', 'zoom', () => zoom);
+  defineComponentState('graph-view', 'simulation-active', () => {
+    const s = get(simulatorStore);
+    return s.isRunning || s.completed;
+  });
+  defineComponentState('graph-view', 'simulation-step-count', () => get(simulatorStore).steps.length);
+  defineComponentState('graph-view', 'simulation-query', () => get(simulatorStore).query ?? '');
 
   let expandedGroups = new Set<string>();
   let zoom = 0.5;

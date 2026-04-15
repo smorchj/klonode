@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import { chatStore, sendMessage, sendComparison, clearChat, setChatMode, approvePlan } from '../../stores/chat';
   import { settingsStore, updateSettings } from '../../stores/settings';
   import {
@@ -11,6 +12,95 @@
   } from '../../stores/agents';
   import { recordActivity, clearActivity } from '../../stores/activity';
   import { graphStore } from '../../stores/graph';
+  import {
+    defineComponent,
+    defineComponentAction,
+    defineComponentState,
+  } from '../../workstation/registry';
+
+  // Register with the workstation self-introspection registry so Claude can
+  // read "which session is active, how many messages, is it loading" and
+  // send messages or switch sessions by name rather than by DOM coordinate.
+  // See #64.
+  defineComponent({
+    id: 'chat-panel',
+    role: 'Multi-session chat panel — active Claude CLI sessions with streaming responses and tool call activity',
+    parent: 'workstation-layout',
+    actions: {
+      'send-message':   { args: { text: 'string', sessionId: 'string?' } },
+      'new-session':    {},
+      'close-session':  { args: { sessionId: 'string' } },
+      'switch-session': { args: { sessionId: 'string' } },
+      'clear':          {},
+      'set-chat-mode':  { args: { mode: '"chat" | "compare"' } },
+      'set-context-depth': { args: { depth: '"minimal" | "light" | "standard" | "heavy" | "full"' } },
+    },
+    state: [
+      'active-session-id',
+      'session-count',
+      'session-labels',
+      'chat-mode',
+      'context-depth',
+      'is-loading',
+      'is-co',
+      'co-context-pct',
+      'pending-closed-sessions',
+    ],
+  });
+
+  defineComponentAction('chat-panel', 'send-message', async ({ text }) => {
+    const msg = typeof text === 'string' ? text.trim() : '';
+    if (!msg) throw new Error('text is required');
+    if (get(chatStore).isLoading) throw new Error('chat panel is busy');
+    inputValue = msg;
+    await handleSend();
+    return { ok: true };
+  });
+  defineComponentAction('chat-panel', 'new-session', () => {
+    addSession();
+    return { ok: true };
+  });
+  defineComponentAction('chat-panel', 'close-session', ({ sessionId }) => {
+    if (typeof sessionId !== 'string') throw new Error('sessionId is required');
+    if (get(sessionsStore).sessions.length <= 1) {
+      throw new Error('cannot close the last session');
+    }
+    removeSession(sessionId);
+    return { ok: true };
+  });
+  defineComponentAction('chat-panel', 'switch-session', ({ sessionId }) => {
+    if (typeof sessionId !== 'string') throw new Error('sessionId is required');
+    setActiveSession(sessionId);
+    return { ok: true };
+  });
+  defineComponentAction('chat-panel', 'clear', () => {
+    clearChat();
+    return { ok: true };
+  });
+  defineComponentAction('chat-panel', 'set-chat-mode', ({ mode }) => {
+    if (mode !== 'chat' && mode !== 'compare') throw new Error('mode must be "chat" or "compare"');
+    setChatMode(mode);
+    return { ok: true };
+  });
+  defineComponentAction('chat-panel', 'set-context-depth', ({ depth: d }) => {
+    if (typeof d !== 'string') throw new Error('depth is required');
+    setContextDepth(d as CtxDepth);
+    return { ok: true };
+  });
+
+  defineComponentState('chat-panel', 'active-session-id', () => get(sessionsStore).activeSessionId);
+  defineComponentState('chat-panel', 'session-count', () => get(sessionsStore).sessions.length);
+  defineComponentState('chat-panel', 'session-labels', () =>
+    get(sessionsStore).sessions.map(s => ({ id: s.id, label: s.label, isCO: s.isCO === true })),
+  );
+  defineComponentState('chat-panel', 'chat-mode', () => get(chatStore).chatMode);
+  defineComponentState('chat-panel', 'context-depth', () => get(sessionsStore).contextDepth);
+  defineComponentState('chat-panel', 'is-loading', () => get(chatStore).isLoading);
+  defineComponentState('chat-panel', 'is-co', () => get(activeSession)?.isCO === true);
+  defineComponentState('chat-panel', 'co-context-pct', () =>
+    Math.min(100, Math.round((get(coContextUsage) / CO_MAX_CONTEXT) * 100)),
+  );
+  defineComponentState('chat-panel', 'pending-closed-sessions', () => get(closedSessionQueue).length);
 
   let inputValue = '';
   let messagesEl: HTMLDivElement;

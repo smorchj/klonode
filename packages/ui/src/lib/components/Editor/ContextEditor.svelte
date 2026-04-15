@@ -1,6 +1,67 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import { graphStore, selectedNode } from '../../stores/graph';
   import { t } from '../../stores/i18n';
+  import {
+    defineComponent,
+    defineComponentAction,
+    defineComponentState,
+  } from '../../workstation/registry';
+
+  // Register with the workstation self-introspection registry. See #64.
+  defineComponent({
+    id: 'context-editor',
+    role: 'CONTEXT.md editor for the currently-selected node — shows the raw markdown with edit mode and injection-risk badge',
+    parent: 'workstation-layout',
+    actions: {
+      'start-edit':   {},
+      'cancel-edit':  {},
+      'save':         { args: { content: 'string?' } },
+      'set-content':  { args: { content: 'string' } },
+    },
+    state: [
+      'selected-node-id',
+      'selected-node-path',
+      'is-edit-mode',
+      'is-manually-edited',
+      'content-line-count',
+      'injection-risk-severity',
+      'injection-risk-reason',
+    ],
+  });
+
+  defineComponentAction('context-editor', 'start-edit', () => {
+    const n = get(selectedNode);
+    if (!n) throw new Error('no node selected');
+    startEdit();
+    return { ok: true };
+  });
+  defineComponentAction('context-editor', 'cancel-edit', () => {
+    cancelEdit();
+    return { ok: true };
+  });
+  defineComponentAction('context-editor', 'save', ({ content }) => {
+    if (typeof content === 'string') editContent = content;
+    saveEdit();
+    return { ok: true };
+  });
+  defineComponentAction('context-editor', 'set-content', ({ content }) => {
+    if (typeof content !== 'string') throw new Error('content must be a string');
+    editContent = content;
+    return { ok: true };
+  });
+
+  defineComponentState('context-editor', 'selected-node-id', () => get(selectedNode)?.id ?? null);
+  defineComponentState('context-editor', 'selected-node-path', () => get(selectedNode)?.path ?? null);
+  defineComponentState('context-editor', 'is-edit-mode', () => editMode);
+  defineComponentState('context-editor', 'is-manually-edited', () =>
+    get(selectedNode)?.contextFile?.manuallyEdited === true,
+  );
+  defineComponentState('context-editor', 'content-line-count', () =>
+    get(selectedNode)?.contextFile?.lineCount ?? 0,
+  );
+  defineComponentState('context-editor', 'injection-risk-severity', () => injectionRisk.severity);
+  defineComponentState('context-editor', 'injection-risk-reason', () => injectionRisk.reason);
 
   $: node = $selectedNode;
   $: contextContent = node?.contextFile?.rawMarkdown || '';

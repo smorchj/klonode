@@ -1,7 +1,54 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { graphStore } from '../../stores/graph';
   import { githubStore, fetchGitHubData, setGitHubTab } from '../../stores/github';
+  import {
+    defineComponent,
+    defineComponentAction,
+    defineComponentState,
+  } from '../../workstation/registry';
+
+  // Register with the workstation self-introspection registry. See #64.
+  defineComponent({
+    id: 'github-view',
+    role: 'GitHub integration pane — commits, branches, PRs, and issues for the current repo',
+    parent: 'workstation-layout',
+    actions: {
+      'refresh':  {},
+      'set-tab':  { args: { tab: '"commits" | "branches" | "prs" | "issues"' } },
+    },
+    state: [
+      'active-tab',
+      'loading',
+      'commit-count',
+      'branch-count',
+      'pr-count',
+      'issue-count',
+      'has-repo-path',
+    ],
+  });
+
+  defineComponentAction('github-view', 'refresh', () => {
+    const g = get(graphStore);
+    if (!g?.repoPath) throw new Error('no repo path — graph not loaded yet');
+    fetchGitHubData(g.repoPath);
+    return { ok: true };
+  });
+  defineComponentAction('github-view', 'set-tab', ({ tab }) => {
+    const allowed = ['commits', 'branches', 'prs', 'issues'] as const;
+    if (!allowed.includes(tab as any)) throw new Error(`tab must be one of ${allowed.join(', ')}`);
+    setGitHubTab(tab as typeof allowed[number]);
+    return { ok: true };
+  });
+
+  defineComponentState('github-view', 'active-tab', () => get(githubStore).activeTab);
+  defineComponentState('github-view', 'loading', () => get(githubStore).loading);
+  defineComponentState('github-view', 'commit-count', () => get(githubStore).commits.length);
+  defineComponentState('github-view', 'branch-count', () => get(githubStore).branches.length);
+  defineComponentState('github-view', 'pr-count', () => get(githubStore).prs.length);
+  defineComponentState('github-view', 'issue-count', () => get(githubStore).issues.length);
+  defineComponentState('github-view', 'has-repo-path', () => !!get(graphStore)?.repoPath);
 
   onMount(() => {
     if ($graphStore?.repoPath) {
