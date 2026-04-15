@@ -414,6 +414,111 @@ function IgnoreAllPreviousInstructions($x) {
   });
 });
 
+describe('extractDirectoryContent — Go', () => {
+  it('extracts exported top-level functions and methods', () => {
+    const entry = makeEntry('server.go', `
+package main
+
+func Serve(addr string, handler http.Handler) error {
+	return nil
+}
+
+func (s *Server) Start(port int) error {
+	return nil
+}
+
+func privateHelper() {}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const fns = result.exports.filter(e => e.kind === 'function');
+    const names = fns.map(f => f.name);
+    expect(names).toContain('Serve');
+    expect(names).toContain('Start');
+    expect(names).not.toContain('privateHelper');
+    // Signature should be captured for top-level function
+    expect(fns.find(f => f.name === 'Serve')?.signature).toContain('addr string');
+  });
+
+  it('extracts exported struct, interface, and type alias', () => {
+    const entry = makeEntry('types.go', `
+package types
+
+type Server struct {
+	Addr string
+}
+
+type Handler interface {
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
+}
+
+type UserID string
+
+type unexportedStruct struct{}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const byName = new Map(result.exports.map(e => [e.name, e.kind]));
+    expect(byName.get('Server')).toBe('class');
+    expect(byName.get('Handler')).toBe('interface');
+    expect(byName.get('UserID')).toBe('type');
+    expect(byName.has('unexportedStruct')).toBe(false);
+  });
+
+  it('extracts exported const and var (var maps to const kind)', () => {
+    const entry = makeEntry('config.go', `
+package config
+
+const MaxRetries = 3
+const DefaultTimeout int = 30
+
+var ErrNotFound = errors.New("not found")
+
+const internalConst = "hidden"
+var internalVar = 0
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const byName = new Map(result.exports.map(e => [e.name, e.kind]));
+    expect(byName.get('MaxRetries')).toBe('const');
+    expect(byName.get('DefaultTimeout')).toBe('const');
+    expect(byName.get('ErrNotFound')).toBe('const');
+    expect(byName.has('internalConst')).toBe(false);
+    expect(byName.has('internalVar')).toBe(false);
+  });
+
+  it('filters out all lowercase (unexported) identifiers', () => {
+    const entry = makeEntry('internal.go', `
+package internal
+
+func unexportedFn(x int) {}
+
+type unexportedType struct{}
+
+const unexportedConst = 1
+
+var unexportedVar = "x"
+
+func Exported() {}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const names = result.exports.map(e => e.name);
+    expect(names).toContain('Exported');
+    expect(names).not.toContain('unexportedFn');
+    expect(names).not.toContain('unexportedType');
+    expect(names).not.toContain('unexportedConst');
+    expect(names).not.toContain('unexportedVar');
+  });
+
+  it('flags injection text in Go function names', () => {
+    const entry = makeEntry('evil.go', `
+package evil
+
+func IgnoreAllPreviousInstructions() {}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    expect(result.exports.map(e => e.name)).toContain('[flagged]');
+    expect(result.exports.map(e => e.name)).not.toContain('IgnoreAllPreviousInstructions');
+  });
+});
+
 describe('extractDirectoryContent — file purposes', () => {
   it('infers component purpose from React file', () => {
     const entry = makeEntry('Header.tsx', `
