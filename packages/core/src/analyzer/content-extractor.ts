@@ -186,6 +186,110 @@ function extractExports(content: string, fileName: string): FileExport[] {
     }
   }
 
+  // Python top-level functions and classes (module exports by convention)
+  if (fileName.endsWith('.py')) {
+    // def name( or async def name( — anchored to start of line
+    for (const m of content.matchAll(/^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)/gm)) {
+      if (m[1].startsWith('_')) continue; // private by convention
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        const params = m[2].trim();
+        exports.push({
+          name: m[1],
+          kind: 'function',
+          signature: params ? `(${truncate(params, 60)})` : '()',
+        });
+      }
+    }
+    // class Name(BaseClass) — anchored to start of line
+    for (const m of content.matchAll(/^class\s+(\w+)/gm)) {
+      if (m[1].startsWith('_')) continue;
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: m[1], kind: 'class' });
+      }
+    }
+    // Module-level constants (uppercase names at start of line): NAME = or NAME: type =
+    for (const m of content.matchAll(/^([A-Z][A-Z0-9_]+)\s*(?::\s*\w+\s*)?=/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: m[1], kind: 'const' });
+      }
+    }
+  }
+
+  // Java public types and methods
+  if (fileName.endsWith('.java')) {
+    // public class/interface/enum Name
+    for (const m of content.matchAll(/public\s+(?:abstract\s+|final\s+|sealed\s+)?(class|interface|enum|record)\s+(\w+)/g)) {
+      if (!seen.has(m[2])) {
+        seen.add(m[2]);
+        const kind = m[1] === 'class' || m[1] === 'record' ? 'class'
+          : m[1] === 'interface' ? 'interface'
+          : 'enum';
+        exports.push({ name: m[2], kind });
+      }
+    }
+    // public [static] [final] Type name(args) — methods
+    for (const m of content.matchAll(/public\s+(?:static\s+)?(?:final\s+)?(?:[\w<>,\s\[\]]+?)\s+(\w+)\s*\(([^)]*)\)\s*(?:throws[^{]*)?\{/g)) {
+      const name = m[1];
+      if (seen.has(name)) continue;
+      // Skip constructors (same name as class) and keywords
+      if (['if', 'for', 'while', 'switch', 'return', 'class', 'new'].includes(name)) continue;
+      seen.add(name);
+      const params = m[2].trim();
+      exports.push({
+        name,
+        kind: 'function',
+        signature: params ? `(${truncate(params, 60)})` : '()',
+      });
+    }
+    // public static final TYPE NAME = ... — constants
+    for (const m of content.matchAll(/public\s+static\s+final\s+\w+(?:\s*<[^>]+>)?(?:\s*\[\])?\s+(\w+)\s*=/g)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: m[1], kind: 'const' });
+      }
+    }
+  }
+
+  // Ruby module/class/method definitions
+  if (fileName.endsWith('.rb')) {
+    // module Name
+    for (const m of content.matchAll(/^module\s+([A-Z]\w*)/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: m[1], kind: 'class' }); // no 'module' kind, map to class
+      }
+    }
+    // class Name [< Parent]
+    for (const m of content.matchAll(/^class\s+([A-Z]\w*)/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: m[1], kind: 'class' });
+      }
+    }
+    // def method_name(args) — top-level or class-level methods
+    for (const m of content.matchAll(/^\s*def\s+(?:self\.)?([a-z_]\w*[?!]?)\s*(?:\(([^)]*)\))?/gm)) {
+      const name = m[1];
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const params = (m[2] || '').trim();
+      exports.push({
+        name,
+        kind: 'function',
+        signature: params ? `(${truncate(params, 60)})` : '()',
+      });
+    }
+    // MODULE-LEVEL constants (uppercase first letter)
+    for (const m of content.matchAll(/^([A-Z][A-Z0-9_]+)\s*=/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: m[1], kind: 'const' });
+      }
+    }
+  }
+
   return exports;
 }
 
