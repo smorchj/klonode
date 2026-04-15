@@ -7,8 +7,29 @@ import chalk from 'chalk';
 
 export async function initCommand(
   repoPath: string,
-  options: { mode?: string; dryRun?: boolean },
+  options: { mode?: string; dryRun?: boolean; gitignoreOnly?: boolean },
 ): Promise<void> {
+  const resolved = path.resolve(repoPath);
+
+  if (options.gitignoreOnly) {
+    const fs = await import('fs');
+    const gitignorePath = path.join(resolved, '.gitignore');
+    const snippet = '\n# Klonode auto-generated routing\nCLAUDE.md\nCONTEXT.md\n.klonode/\n';
+    
+    if (fs.existsSync(gitignorePath)) {
+      const content = fs.readFileSync(gitignorePath, 'utf8');
+      if (!content.includes('# Klonode auto-generated routing')) {
+        fs.appendFileSync(gitignorePath, snippet);
+        console.log(chalk.green('✓ Appended Klonode preset to .gitignore'));
+      } else {
+        console.log(chalk.yellow('⚠ .gitignore already contains the Klonode preset'));
+      }
+    } else {
+      fs.writeFileSync(gitignorePath, snippet.trimStart());
+      console.log(chalk.green('✓ Created .gitignore and added Klonode preset'));
+    }
+    return;
+  }
   const {
     generateRouting,
     writeGeneratedFiles,
@@ -19,7 +40,7 @@ export async function initCommand(
     formatInjectionReport,
   } = await import('@klonode/core');
 
-  const resolved = path.resolve(repoPath);
+
   const mode = (options.mode === 'shadow' ? 'shadow' : 'inline') as 'inline' | 'shadow';
 
   console.log(chalk.blue.bold('\n⟐ Klonode — AI Context Routing Generator\n'));

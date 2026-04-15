@@ -57,6 +57,19 @@ Claude reads layer 0 first, then routes down as needed.
 
 Yes. Edit any `CONTEXT.md`, add `<!-- klonode:manual -->` at the top, and Klonode will preserve your edits on future runs.
 
+## How do I ignore generated files in Git?
+
+If you want to treat Klonode's output as ephemeral artifacts rather than committing them to your repo, add this to your `.gitignore`:
+
+```gitignore
+# Klonode auto-generated routing
+CLAUDE.md
+CONTEXT.md
+.klonode/
+```
+
+You can automatically append this by running `klonode init --gitignore-only`.
+
 ## Is it production-ready?
 
 No. This is v0.1.0 alpha. Interfaces may change. But the core pipeline works end-to-end — we use it daily.
