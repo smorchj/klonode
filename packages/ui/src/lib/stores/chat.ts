@@ -38,6 +38,12 @@ export interface ChatMessage {
    * resolves.
    */
   interrupted?: boolean;
+  /**
+   * True while this user message is waiting in the send queue. The message
+   * is visible in the chat history but has not yet been sent to Claude.
+   * Cleared when the queue drains and the message starts streaming.
+   */
+  pending?: boolean;
 }
 
 export interface ChatComparison {
