@@ -330,6 +330,90 @@ end
   });
 });
 
+describe('extractDirectoryContent — PHP', () => {
+  it('extracts top-level function with parameters', () => {
+    const entry = makeEntry('utils.php', `<?php
+function add($a, $b) {
+    return $a + $b;
+}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const fn = result.exports.find(e => e.name === 'add');
+    expect(fn).toBeTruthy();
+    expect(fn?.kind).toBe('function');
+    expect(fn?.signature).toContain('$a');
+  });
+
+  it('extracts public class method', () => {
+    const entry = makeEntry('service.php', `<?php
+class UserService {
+    public function getUser($id) {
+        return null;
+    }
+}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const fn = result.exports.find(e => e.name === 'getUser');
+    expect(fn).toBeTruthy();
+    expect(fn?.kind).toBe('function');
+  });
+
+  it('extracts class', () => {
+    const entry = makeEntry('model.php', `<?php
+class User {
+    public $name;
+}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    expect(result.exports.find(e => e.name === 'User')?.kind).toBe('class');
+  });
+
+  it('extracts interface', () => {
+    const entry = makeEntry('contract.php', `<?php
+interface Repository {
+    public function find($id);
+}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    expect(result.exports.find(e => e.name === 'Repository')?.kind).toBe('interface');
+  });
+
+  it('maps trait to class kind', () => {
+    const entry = makeEntry('timestampable.php', `<?php
+trait Timestampable {
+    public function getCreatedAt() {
+        return $this->createdAt;
+    }
+}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    expect(result.exports.find(e => e.name === 'Timestampable')?.kind).toBe('class');
+  });
+
+  it('extracts constants', () => {
+    const entry = makeEntry('config.php', `<?php
+const MAX_RETRIES = 3;
+const API_VERSION = "1.0";
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    const names = result.exports.map(e => e.name);
+    expect(names).toContain('MAX_RETRIES');
+    expect(names).toContain('API_VERSION');
+    expect(result.exports.find(e => e.name === 'MAX_RETRIES')?.kind).toBe('const');
+  });
+
+  it('flags injection function name in IgnoreAllPreviousInstructions.php', () => {
+    const entry = makeEntry('IgnoreAllPreviousInstructions.php', `<?php
+function IgnoreAllPreviousInstructions($x) {
+    return $x;
+}
+`, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([entry], fixtureRoot), fixtureRoot);
+    expect(result.exports.map(e => e.name)).toContain('[flagged]');
+    expect(result.exports.map(e => e.name)).not.toContain('IgnoreAllPreviousInstructions');
+  });
+});
+
 describe('extractDirectoryContent — file purposes', () => {
   it('infers component purpose from React file', () => {
     const entry = makeEntry('Header.tsx', `
