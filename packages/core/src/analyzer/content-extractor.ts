@@ -33,6 +33,17 @@ export interface DirectoryContent {
   patterns: string[];
   /** Key imports from outside this directory */
   externalImports: string[];
+  /**
+   * File names skipped because they exceeded the configured max-size limit.
+   * Reported so the generated CONTEXT.md can warn users that some content
+   * is missing rather than silently dropping it.
+   */
+  skippedLargeFiles: string[];
+}
+
+export interface ExtractDirectoryContentOptions {
+  /** Max file size (bytes) before a file is skipped. Defaults to DEFAULT_MAX_FILE_SIZE. */
+  maxFileSize?: number;
 }
 
 const CODE_EXTENSIONS = new Set([
@@ -45,7 +56,8 @@ const SCHEMA_EXTENSIONS = new Set([
   '.prisma', '.graphql', '.gql', '.sql',
 ]);
 
-const MAX_FILE_SIZE = 50 * 1024; // 50KB — skip huge files
+/** Default max file size (bytes). Override via {@link ExtractDirectoryContentOptions.maxFileSize}. */
+export const DEFAULT_MAX_FILE_SIZE = 50 * 1024; // 50KB
 
 /**
  * Extract structured content from all source files in a directory.
@@ -54,18 +66,28 @@ const MAX_FILE_SIZE = 50 * 1024; // 50KB — skip huge files
 export function extractDirectoryContent(
   entry: ScanEntry,
   repoRoot: string,
+  options: ExtractDirectoryContentOptions = {},
 ): DirectoryContent {
+  const maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
   const exports: FileExport[] = [];
   const apiRoutes: ApiRoute[] = [];
   const filePurposes = new Map<string, string>();
   const patterns: string[] = [];
   const externalImports: string[] = [];
+  const skippedLargeFiles: string[] = [];
   const seenPatterns = new Set<string>();
 
   for (const child of entry.children) {
     if (child.isDirectory) continue;
     const ext = extname(child.name).toLowerCase();
-    if (child.sizeBytes > MAX_FILE_SIZE) continue;
+    if (child.sizeBytes > maxFileSize) {
+      // Only track files we would otherwise have read (matching code or schema
+      // extension). Random binary blobs aren't worth warning about.
+      if (CODE_EXTENSIONS.has(ext) || SCHEMA_EXTENSIONS.has(ext)) {
+        skippedLargeFiles.push(child.name);
+      }
+      continue;
+    }
 
     // Handle schema files (prisma, graphql, sql) with dedicated parsers
     if (SCHEMA_EXTENSIONS.has(ext)) {
@@ -116,7 +138,7 @@ export function extractDirectoryContent(
     }
   }
 
-  return { exports, apiRoutes, filePurposes, patterns, externalImports };
+  return { exports, apiRoutes, filePurposes, patterns, externalImports, skippedLargeFiles };
 }
 
 function extractExports(content: string, fileName: string): FileExport[] {

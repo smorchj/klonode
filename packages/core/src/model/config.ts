@@ -28,6 +28,13 @@ export interface KlonodeConfig {
   coAnalysisInterval: number;
   /** Enable multi-agent mode */
   multiAgentEnabled: boolean;
+  /**
+   * Maximum file size (in bytes) the content extractor will read.
+   * Files larger than this are skipped and reported in the directory's
+   * `skippedLargeFiles` list so they show up as a warning in CONTEXT.md.
+   * Defaults to 51200 (50KB).
+   */
+  maxFileSize: number;
 }
 
 export const DEFAULT_CONFIG: KlonodeConfig = {
@@ -63,4 +70,5 @@ export const DEFAULT_CONFIG: KlonodeConfig = {
   defaultContextDepth: 'standard',
   coAnalysisInterval: 10,
   multiAgentEnabled: false,
+  maxFileSize: 51200, // 50KB
 };

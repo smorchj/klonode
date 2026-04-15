@@ -15,9 +15,15 @@ import { getChecklistForDirectory, validateContext, ROOT_CHECKLIST, type Checkli
 /** Cached scan entries for content extraction */
 let scanEntryMap: Map<string, ScanEntry> | null = null;
 let currentRepoRoot = '';
+let currentMaxFileSize: number | undefined = undefined;
 
-export function setContentExtractionContext(scanRoot: ScanEntry, repoRoot: string): void {
+export function setContentExtractionContext(
+  scanRoot: ScanEntry,
+  repoRoot: string,
+  options: { maxFileSize?: number } = {},
+): void {
   currentRepoRoot = repoRoot;
+  currentMaxFileSize = options.maxFileSize;
   scanEntryMap = new Map();
   function walk(entry: ScanEntry) {
     if (entry.isDirectory) {
@@ -26,6 +32,12 @@ export function setContentExtractionContext(scanRoot: ScanEntry, repoRoot: strin
     }
   }
   walk(scanRoot);
+}
+
+function extractContent(scanEntry: ScanEntry): DirectoryContent {
+  return extractDirectoryContent(scanEntry, currentRepoRoot, {
+    maxFileSize: currentMaxFileSize,
+  });
 }
 
 /**
@@ -54,7 +66,7 @@ export function generateLayer2Light(
   let dirContent: DirectoryContent | null = null;
   if (scanEntryMap && currentRepoRoot) {
     const scanEntry = scanEntryMap.get(node.path);
-    if (scanEntry) dirContent = extractDirectoryContent(scanEntry, currentRepoRoot);
+    if (scanEntry) dirContent = extractContent(scanEntry);
   }
 
   const lines: string[] = [];
@@ -110,7 +122,7 @@ export function generateLayer2Full(
   if (scanEntryMap && currentRepoRoot) {
     const scanEntry = scanEntryMap.get(node.path);
     if (scanEntry) {
-      dirContent = extractDirectoryContent(scanEntry, currentRepoRoot);
+      dirContent = extractContent(scanEntry);
     }
   }
 
@@ -136,6 +148,17 @@ export function generateLayer2Full(
     lines.push('## Files');
     for (const [file, purpose] of dirContent.filePurposes) {
       lines.push(`- \`${file}\` — ${purpose}`);
+    }
+    lines.push('');
+  }
+
+  // Skipped large files — surface what we couldn't read so users know
+  // CONTEXT.md has gaps and can raise `maxFileSize` in KlonodeConfig.
+  if (dirContent && dirContent.skippedLargeFiles.length > 0) {
+    lines.push('## Skipped (file too large)');
+    lines.push('These files were larger than the configured `maxFileSize` and were not analyzed. Raise `maxFileSize` in `.klonode/config.json` to include them.');
+    for (const file of dirContent.skippedLargeFiles) {
+      lines.push(`- \`${file}\``);
     }
     lines.push('');
   }
