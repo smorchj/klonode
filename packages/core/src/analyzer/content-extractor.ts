@@ -255,15 +255,15 @@ function extractExports(content: string, fileName: string): FileExport[] {
 
   // Ruby module/class/method definitions
   if (fileName.endsWith('.rb')) {
-    // module Name
-    for (const m of content.matchAll(/^module\s+([A-Z]\w*)/gm)) {
+    // module Name — allow leading whitespace (nested modules)
+    for (const m of content.matchAll(/^\s*module\s+([A-Z]\w*)/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
         exports.push({ name: m[1], kind: 'class' }); // no 'module' kind, map to class
       }
     }
-    // class Name [< Parent]
-    for (const m of content.matchAll(/^class\s+([A-Z]\w*)/gm)) {
+    // class Name [< Parent] — allow leading whitespace (classes inside modules)
+    for (const m of content.matchAll(/^\s*class\s+([A-Z]\w*)/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
         exports.push({ name: m[1], kind: 'class' });
@@ -281,8 +281,8 @@ function extractExports(content: string, fileName: string): FileExport[] {
         signature: params ? `(${truncate(params, 60)})` : '()',
       });
     }
-    // MODULE-LEVEL constants (uppercase first letter)
-    for (const m of content.matchAll(/^([A-Z][A-Z0-9_]+)\s*=/gm)) {
+    // Constants (uppercase names) — allow leading whitespace for constants inside modules
+    for (const m of content.matchAll(/^\s*([A-Z][A-Z0-9_]+)\s*=/gm)) {
       if (!seen.has(m[1])) {
         seen.add(m[1]);
         exports.push({ name: m[1], kind: 'const' });
