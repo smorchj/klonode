@@ -35,7 +35,7 @@ cd packages/ui && pnpm dev
 
 - Changes that remove types or tests
 - Mass stylistic rewrites
-- AI-slop PRs without human review
+- Badly written code (whether human- or AI-generated) — every PR needs to read clearly, follow project conventions, and have intent the reviewer can verify
 - Features without a clear use case
 
 ## Code style
