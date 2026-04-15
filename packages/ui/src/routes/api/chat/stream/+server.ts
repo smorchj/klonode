@@ -41,11 +41,10 @@ Answer in Norwegian unless the user writes in English. Write all code and CONTEX
       : `Erfaren utvikler. Svar pa norsk med mindre brukeren skriver pa engelsk.`;
   }
 
-  // On resume: just send the user's message (session already has system prompt + history)
-  // On first message: include system prompt
-  const fullPrompt = body.sessionId
-    ? body.message
-    : `${systemPrompt}\n\nBrukerens sporsmaal: ${body.message}`;
+  // Every message is a fresh spawn — always prepend the system prompt so
+  // Claude has routing context. See the note below about why --resume was
+  // dropped.
+  const fullPrompt = `${systemPrompt}\n\nBrukerens sporsmaal: ${body.message}`;
 
   // Write prompt to temp file
   const tmpDir = process.env.TEMP || process.env.TMP || '/tmp';
@@ -54,17 +53,31 @@ Answer in Norwegian unless the user writes in English. Write all code and CONTEX
 
   // Build CLI args
   const isCO = body.isCO;
-  const maxTurns = isCO ? 200 : (body.executionMode === 'question' ? 1 : body.executionMode === 'plan' ? 15 : 50);
+  // Turn budget. Claude Code's interactive default is effectively unlimited;
+  // a real coding task like "add a language extractor + tests" routinely
+  // needs 80-150 tool calls. Previously bypass mode was capped at 50, which
+  // hit the limit mid-task and made the session appear unresponsive with a
+  // generic "Claude brukte alle steg" fallback. Raise bypass to 500 so tasks
+  // of that shape actually complete. question/plan stay tight because they
+  // exist precisely to cap turn spend.
+  const maxTurns = isCO ? 500
+    : body.executionMode === 'question' ? 1
+    : body.executionMode === 'plan' ? 15
+    : 500;
   const tools = body.executionMode === 'question' ? [] :
     body.executionMode === 'plan' ? ['Read', 'Glob', 'Grep'] :
     ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'];
 
   const args = ['-p', '--verbose', '--max-turns', String(maxTurns), '--output-format', 'stream-json'];
 
-  // Session persistence — reuse session ID so Claude remembers conversation history
-  if (body.sessionId) {
-    args.push('--resume', body.sessionId);
-  }
+  // NOTE: `-p` mode session IDs are NOT reliably resumable — Claude CLI
+  // returns "No conversation found with session ID: ..." on the second
+  // invocation, which Klonode then renders as "Claude brukte alle steg".
+  // Every send gets a fresh spawn. Continuity on the user side lives in the
+  // persisted chatStore.messages; Claude re-routes against the graph on
+  // every message, which matches Klonode's per-query routing philosophy
+  // anyway. If/when we add real resume (interactive transport or prompt
+  // replay), it goes here.
 
   if (tools.length > 0) {
     args.push('--allowedTools', tools.join(','));
