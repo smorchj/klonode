@@ -58,6 +58,13 @@ export interface SessionMessage {
   planContext?: { query: string; context: string; files: string[]; folderPaths: string[]; repoPath: string };
   /** File operations extracted from this message's CLI response */
   fileOps?: FileOperation[];
+  /**
+   * True if this message was mid-stream (`loading: true`) when the app was
+   * reloaded. Set on hydrate so the UI can render a "response interrupted by
+   * reload" indicator instead of a spinner that never resolves. Cleared on
+   * the next successful assistant response.
+   */
+  interrupted?: boolean;
 }
 
 interface SessionsState {
@@ -71,9 +78,24 @@ interface SessionsState {
   coMemory: string;
   /** Closed session summaries waiting for CO to process */
   closedSessionQueue: { label: string; meta: SessionMeta; messageCount: number; summary: string }[];
+  /**
+   * Klonode session tab ID → Claude CLI session ID. Persisted so that after a
+   * page reload or Vite server restart the next message in a tab resumes the
+   * same Claude conversation instead of spawning a fresh one. See
+   * self-hosting session survival work (#53 follow-up / #65 sibling).
+   */
+  cliSessionIds: Record<string, string>;
 }
 
 const STORAGE_KEY = 'klonode-sessions';
+
+/**
+ * Maximum messages kept per session in localStorage. When a session exceeds
+ * this, the oldest messages are dropped at save time. Keeps the storage
+ * footprint bounded so a long conversation doesn't blow through the ~5 MB
+ * localStorage quota.
+ */
+const MAX_PERSISTED_MESSAGES_PER_SESSION = 50;
 
 function makeId(): string {
   return `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -112,6 +134,7 @@ function loadState(): SessionsState {
     nextNum: 2,
     coMemory: '',
     closedSessionQueue: [],
+    cliSessionIds: {},
   };
 
   if (typeof localStorage === 'undefined') return defaults;
@@ -122,12 +145,29 @@ function loadState(): SessionsState {
       if (saved.sessions?.length > 0) {
         const hasCO = saved.sessions.some((s: ChatSession) => s.isCO);
         if (!hasCO) saved.sessions.unshift(co);
+        // Rehydrate Date objects that JSON.stringify turned into strings on
+        // save — otherwise any code that calls .toISOString() on a message
+        // timestamp throws after a reload.
+        const rehydratedMessages: Record<string, SessionMessage[]> = {};
+        for (const [sid, list] of Object.entries(saved.messages || {})) {
+          rehydratedMessages[sid] = (list as SessionMessage[]).map(m => ({
+            ...m,
+            timestamp: new Date(m.timestamp as unknown as string),
+            // A message flagged as loading at save time must have been
+            // interrupted by the reload — mark it so the UI can render a
+            // "this response was interrupted" indicator instead of a spinner
+            // that never resolves.
+            loading: false,
+            interrupted: m.loading === true || (m as SessionMessage & { interrupted?: boolean }).interrupted === true,
+          } as SessionMessage));
+        }
         return {
           ...defaults, ...saved,
-          messages: saved.messages || {},
+          messages: rehydratedMessages,
           metadata: saved.metadata || {},
           closedSessionQueue: saved.closedSessionQueue || [],
           coMemory: saved.coMemory || '',
+          cliSessionIds: saved.cliSessionIds || {},
         };
       }
     }
@@ -137,9 +177,30 @@ function loadState(): SessionsState {
 
 function saveState(state: SessionsState): void {
   if (typeof localStorage === 'undefined') return;
-  // Persist sessions + depth, but not messages (too large)
-  const toSave = { ...state, messages: {} };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  // Persist messages with a per-session cap so a long conversation doesn't
+  // blow through the localStorage quota. Keeps the last N messages per
+  // session, drops everything older. Session list, CLI session IDs, metadata,
+  // and CO memory are all persisted in full.
+  const cappedMessages: Record<string, SessionMessage[]> = {};
+  for (const [sid, list] of Object.entries(state.messages)) {
+    if (list.length > MAX_PERSISTED_MESSAGES_PER_SESSION) {
+      cappedMessages[sid] = list.slice(-MAX_PERSISTED_MESSAGES_PER_SESSION);
+    } else {
+      cappedMessages[sid] = list;
+    }
+  }
+  const toSave = { ...state, messages: cappedMessages };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (err) {
+    // QuotaExceededError — drop messages and try again with session list
+    // only. Better to lose the backlog than to silently fail to persist the
+    // session list and CLI session IDs (which are the critical path for
+    // self-hosting survival).
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...toSave, messages: {} }));
+    } catch { /* nothing more we can do */ }
+  }
 }
 
 export const sessionsStore = writable<SessionsState>(loadState());
@@ -188,6 +249,59 @@ export function setActiveAgent(sessionId: string): void {
 
 export function setContextDepth(depth: ContextDepth): void {
   sessionsStore.update(s => ({ ...s, contextDepth: depth }));
+}
+
+/**
+ * Look up the Claude CLI session ID associated with a Klonode tab, or
+ * `undefined` if there's no mapping yet (i.e. next message will start a
+ * fresh conversation). Persisted via `saveState` so reloads and server
+ * restarts preserve conversation continuity.
+ */
+export function getCliSessionId(klonodeSessionId: string): string | undefined {
+  return get(sessionsStore).cliSessionIds[klonodeSessionId];
+}
+
+/**
+ * Record the Claude CLI session ID for a Klonode tab. Called whenever a
+ * streaming response emits its session id so follow-up messages in the
+ * same tab resume the same Claude conversation.
+ */
+export function setCliSessionId(klonodeSessionId: string, cliSessionId: string): void {
+  sessionsStore.update(s => ({
+    ...s,
+    cliSessionIds: { ...s.cliSessionIds, [klonodeSessionId]: cliSessionId },
+  }));
+}
+
+/**
+ * Drop the CLI session ID mapping for a tab. Called when the user clears
+ * the chat so the next message starts fresh.
+ */
+export function clearCliSessionId(klonodeSessionId: string): void {
+  sessionsStore.update(s => {
+    if (!(klonodeSessionId in s.cliSessionIds)) return s;
+    const next = { ...s.cliSessionIds };
+    delete next[klonodeSessionId];
+    return { ...s, cliSessionIds: next };
+  });
+}
+
+/**
+ * Clear the `interrupted` flag on a message once a new response has
+ * successfully arrived for the same session. The flag is set at hydrate
+ * time (see loadState) for any message that was `loading: true` when the
+ * page unloaded.
+ */
+export function clearInterruptedFlag(sessionId: string, messageId: string): void {
+  sessionsStore.update(s => {
+    const list = s.messages[sessionId];
+    if (!list) return s;
+    const idx = list.findIndex(m => m.id === messageId);
+    if (idx === -1 || !list[idx].interrupted) return s;
+    const nextList = list.slice();
+    nextList[idx] = { ...nextList[idx], interrupted: false };
+    return { ...s, messages: { ...s.messages, [sessionId]: nextList } };
+  });
 }
 
 export function addSession(): string {

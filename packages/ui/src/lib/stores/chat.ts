@@ -31,6 +31,13 @@ export interface ChatMessage {
   isPlan?: boolean;
   /** The original query + context for re-executing after plan approval */
   planContext?: { query: string; context: string; files: string[]; folderPaths: string[]; repoPath: string };
+  /**
+   * True if this message was mid-stream (`loading: true`) when the app
+   * was reloaded. Set at hydrate time so the UI can render a "response
+   * interrupted by reload" indicator instead of a spinner that never
+   * resolves.
+   */
+  interrupted?: boolean;
 }
 
 export interface ChatComparison {
@@ -55,7 +62,68 @@ const initial: ChatState = {
   chatMode: 'chat',
 };
 
-export const chatStore = writable<ChatState>(initial);
+/**
+ * Self-hosting survival: persist the user-facing chat conversation to
+ * localStorage so reloads (including Vite server restarts triggered by
+ * editing a server-side file) preserve the active chat. Cap the persisted
+ * list so a long conversation doesn't blow through the localStorage quota,
+ * and leave `isLoading` / `error` / `lastComparison` out of the snapshot
+ * since they're transient UI state.
+ */
+const CHAT_STORAGE_KEY = 'klonode-chat';
+const MAX_PERSISTED_CHAT_MESSAGES = 80;
+
+function loadChatState(): ChatState {
+  if (typeof localStorage === 'undefined') return initial;
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return initial;
+    const saved = JSON.parse(raw) as Partial<ChatState>;
+    const messages = Array.isArray(saved.messages) ? saved.messages : [];
+    // Rehydrate Date timestamps (JSON.stringify turns Date into an ISO
+    // string). Any message that was `loading: true` at save time must have
+    // been interrupted by the reload — mark it so the UI renders a
+    // "response interrupted" indicator instead of a spinner that never
+    // resolves.
+    const rehydrated: ChatMessage[] = messages.map((m: ChatMessage & { interrupted?: boolean }) => ({
+      ...m,
+      timestamp: new Date(m.timestamp as unknown as string),
+      loading: false,
+      interrupted: m.loading === true || m.interrupted === true,
+    }));
+    return {
+      ...initial,
+      messages: rehydrated,
+      chatMode: saved.chatMode === 'compare' ? 'compare' : 'chat',
+    };
+  } catch {
+    return initial;
+  }
+}
+
+function saveChatState(state: ChatState): void {
+  if (typeof localStorage === 'undefined') return;
+  const capped =
+    state.messages.length > MAX_PERSISTED_CHAT_MESSAGES
+      ? state.messages.slice(-MAX_PERSISTED_CHAT_MESSAGES)
+      : state.messages;
+  const toSave = { messages: capped, chatMode: state.chatMode };
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toSave));
+  } catch {
+    // QuotaExceededError — drop messages entirely rather than lose the mode
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], chatMode: state.chatMode }));
+    } catch { /* nothing more we can do */ }
+  }
+}
+
+export const chatStore = writable<ChatState>(loadChatState());
+
+// Auto-persist on every change. The update is synchronous and cheap
+// relative to a JSON.stringify of under 100 messages so we don't bother
+// debouncing.
+chatStore.subscribe(saveChatState);
 
 /**
  * Route the query through the graph to find relevant CONTEXT.md files.

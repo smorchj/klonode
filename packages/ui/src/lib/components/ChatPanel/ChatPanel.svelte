@@ -7,6 +7,7 @@
     setActiveSession, setContextDepth, addSession, removeSession,
     coContextUsage, CO_MAX_CONTEXT, closedSessionQueue,
     CONTEXT_DEPTH_LABELS,
+    getCliSessionId, setCliSessionId, clearCliSessionId,
     type ContextDepth as CtxDepth,
   } from '../../stores/agents';
   import { recordActivity, clearActivity } from '../../stores/activity';
@@ -22,8 +23,10 @@
   let attachments: { name: string; type: string; dataUrl: string; file: File }[] = [];
   let fileInput: HTMLInputElement;
   let abortController: AbortController | null = null;
-  /** Maps Klonode session tab ID → Claude CLI session ID for persistence */
-  const cliSessionIds: Record<string, string> = {};
+  // Klonode session tab ID → Claude CLI session ID is now tracked in
+  // sessionsStore.cliSessionIds and persisted to localStorage, so reloads
+  // and Vite server restarts preserve conversation continuity. Use
+  // getCliSessionId / setCliSessionId / clearCliSessionId from the store.
 
   $: chatMode = $chatStore.chatMode;
   $: sessions = $sessionsStore.sessions;
@@ -99,7 +102,7 @@
             repoPath,
             executionMode: isCO ? 'bypass' : (settings.executionMode === 'auto' ? 'bypass' : settings.executionMode),
             isCO,
-            sessionId: cliSessionIds[$sessionsStore.activeSessionId] || undefined,
+            sessionId: getCliSessionId($sessionsStore.activeSessionId),
           }),
         });
 
@@ -128,8 +131,7 @@
                   case 'session':
                     // Store CLI session ID for this tab so next message resumes the conversation
                     if (data.sessionId) {
-                      cliSessionIds[$sessionsStore.activeSessionId] = data.sessionId;
-                      console.log(`[Klonode] Session persisted: ${data.sessionId}`);
+                      setCliSessionId($sessionsStore.activeSessionId, data.sessionId);
                     }
                     break;
                   case 'tool':
@@ -271,7 +273,7 @@
 
   function handleRecontextualize() {
     // Start fresh CO session — clear any existing session ID so we don't resume old context
-    delete cliSessionIds[$sessionsStore.activeSessionId];
+    clearCliSessionId($sessionsStore.activeSessionId);
 
     inputValue = `Read the entire project. Every source file, config, schema, script. Understand the full architecture, then write CONTEXT.md files for every directory.
 
@@ -335,6 +337,11 @@ Rules:
     <div class="chat-title">
       <span class="chat-icon">⟡</span>
       <span>Klonode Chat</span>
+      {#if $chatStore.isLoading}
+        <span class="stream-badge" title="A response is streaming. Editing a server-side file (api/**, .ts stores, config) right now will restart Vite and interrupt this stream. Safe to edit client components.">
+          ● streaming
+        </span>
+      {/if}
     </div>
     <div class="chat-actions">
       {#if $chatStore.messages.length > 0}
@@ -595,6 +602,11 @@ Rules:
                 </div>
               {/if}
             {:else}
+              {#if msg.interrupted}
+                <div class="interrupted-banner" title="This response was cut off when the app reloaded — usually because you edited a server-side file and Vite restarted.">
+                  ⚠ response interrupted by reload
+                </div>
+              {/if}
               <div class="assistant-content">{msg.content}</div>
               <!-- Plan approval button -->
               {#if msg.isPlan}
@@ -748,6 +760,28 @@ Rules:
     font-size: 12px; font-weight: 700; color: #e5e7eb;
   }
   .chat-icon { color: #a78bfa; font-size: 16px; }
+  .stream-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    font-weight: 600;
+    cursor: help;
+    animation: stream-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes stream-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
+  .interrupted-banner {
+    font-size: 10px; padding: 4px 8px; border-radius: 6px;
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    margin-bottom: 6px;
+    font-weight: 600;
+    cursor: help;
+  }
   .chat-actions { display: flex; gap: 4px; }
   .action-btn {
     width: 26px; height: 26px; border: none;
