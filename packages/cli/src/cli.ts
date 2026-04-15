@@ -28,6 +28,7 @@ program
   .command('status')
   .description('Show routing health and coverage')
   .argument('[path]', 'Path to the repository', '.')
+  .option('--security', 'Run security scan against CONTEXT.md files for injection patterns')
   .action(statusCommand);
 
 program

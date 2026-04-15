@@ -5,8 +5,18 @@
 import * as path from 'path';
 import chalk from 'chalk';
 
-export async function statusCommand(repoPath: string): Promise<void> {
-  const { loadGraph, loadConfig, buildDirAccessMap, listSessions } = await import('@klonode/core');
+export async function statusCommand(
+  repoPath: string,
+  options: { security?: boolean } = {},
+): Promise<void> {
+  const {
+    loadGraph,
+    loadConfig,
+    buildDirAccessMap,
+    listSessions,
+    scanRepositoryForInjection,
+    formatInjectionReport,
+  } = await import('@klonode/core');
 
   const resolved = path.resolve(repoPath);
   const graph = loadGraph(resolved);
@@ -73,5 +83,18 @@ export async function statusCommand(repoPath: string): Promise<void> {
     console.log(chalk.yellow('\n⚡ Tip: Work on a few more tasks to build enough telemetry for optimization.\n'));
   } else {
     console.log(chalk.green('\n✓ Enough telemetry data. Run `klonode optimize` to improve routing.\n'));
+  }
+
+  // Security scan (only when --security is passed, or always when there's manual edits to review)
+  if (options.security || manuallyEdited > 0) {
+    console.log(chalk.white('Security scan:'));
+    const report = scanRepositoryForInjection(resolved);
+    const formatted = formatInjectionReport(report);
+    if (report.totalHits > 0) {
+      console.log(chalk.yellow(formatted));
+    } else {
+      console.log(chalk.gray('  ' + formatted));
+    }
+    console.log('');
   }
 }
