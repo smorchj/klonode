@@ -357,3 +357,43 @@ export type Status = 'ok' | 'error';
     expect(purpose?.toLowerCase()).toContain('types');
   });
 });
+
+
+describe('extractDirectoryContent — maxFileSize handling', () => {
+  it('reports source files skipped because they exceed the default size limit', () => {
+    // 60KB of TypeScript source — over the 50KB default
+    const big = 'export const X = "' + 'a'.repeat(60_000) + '";\n';
+    const small = 'export function tiny() {}\n';
+    const bigEntry = makeEntry('big.ts', big, fixtureRoot);
+    const smallEntry = makeEntry('small.ts', small, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([bigEntry, smallEntry], fixtureRoot), fixtureRoot);
+
+    expect(result.skippedLargeFiles).toContain('big.ts');
+    expect(result.skippedLargeFiles).not.toContain('small.ts');
+    // The small file's exports were still extracted.
+    expect(result.exports.map(e => e.name)).toContain('tiny');
+  });
+
+  it('honors a higher maxFileSize override and processes the file', () => {
+    const big = 'export const Big = "' + 'a'.repeat(60_000) + '";\n';
+    const bigEntry = makeEntry('big.ts', big, fixtureRoot);
+    const result = extractDirectoryContent(
+      makeRoot([bigEntry], fixtureRoot),
+      fixtureRoot,
+      { maxFileSize: 200_000 },
+    );
+
+    expect(result.skippedLargeFiles).toEqual([]);
+    expect(result.exports.map(e => e.name)).toContain('Big');
+  });
+
+  it('does not list non-source files (e.g. binary blobs) as skipped', () => {
+    // A made-up extension we don't know about — should be ignored either way,
+    // but should NOT show up in skippedLargeFiles even when oversized.
+    const bigBlob = 'X'.repeat(60_000);
+    const blobEntry = makeEntry('huge.dat', bigBlob, fixtureRoot);
+    const result = extractDirectoryContent(makeRoot([blobEntry], fixtureRoot), fixtureRoot);
+
+    expect(result.skippedLargeFiles).toEqual([]);
+  });
+});

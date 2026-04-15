@@ -83,7 +83,7 @@ export async function generateRouting(
 
   // Layer 2: CONTEXT.md in each significant subdirectory
   // Pass scan data so layer2 can extract actual file contents (exports, routes, patterns)
-  setContentExtractionContext(scanResult.root, repoPath);
+  setContentExtractionContext(scanResult.root, repoPath, { maxFileSize: config.maxFileSize });
   const layer2Files = generateAllLayer2(graph);
   for (const [dirPath, content] of layer2Files) {
     const relPath = dirPath === '.'
