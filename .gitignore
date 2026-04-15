@@ -39,3 +39,6 @@ coverage/
 # Local Claude Code settings (user-specific)
 .claude/settings.local.json
 .claude/launch.json
+
+# Marketing drafts (private — edit/publish externally)
+.marketing/
