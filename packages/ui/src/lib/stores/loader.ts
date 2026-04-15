@@ -28,6 +28,31 @@ export async function loadGraphFromUrl(url: string): Promise<void> {
 }
 
 /**
+ * Load the graph for the project the Workstation backend is running in.
+ * Tries `/api/graph/current` first (which reads `.klonode/graph.json` from
+ * the server cwd), and falls back to `/demo-graph.json` if no real graph
+ * exists. This means a fresh user who has run `klonode init` in their
+ * project sees the real tree, not a fake `demo-project`. See #64 /
+ * self-hosting survival work.
+ */
+export async function loadGraphForCurrentProject(): Promise<
+  'real' | 'demo'
+> {
+  try {
+    const res = await fetch('/api/graph/current');
+    if (res.ok) {
+      const data: SerializedGraph = await res.json();
+      graphStore.set(hydrateGraph(data));
+      return 'real';
+    }
+  } catch {
+    // fall through to demo
+  }
+  await loadGraphFromUrl('/demo-graph.json');
+  return 'demo';
+}
+
+/**
  * Convert serialized JSON into a proper RoutingGraph with Maps.
  */
 function hydrateGraph(data: SerializedGraph): RoutingGraph {

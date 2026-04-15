@@ -4,7 +4,7 @@
  * Context routing happens automatically — user just picks which session to talk to.
  */
 
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 
 export type ContextDepth = 'minimal' | 'light' | 'standard' | 'heavy' | 'full';
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { viewMode } from '$lib/stores/graph';
-  import { loadGraphFromUrl } from '$lib/stores/loader';
+  import { loadGraphForCurrentProject } from '$lib/stores/loader';
   import TreeView from '$lib/components/TreeView/TreeView.svelte';
   import GraphView from '$lib/components/GraphView/GraphView.svelte';
   import ContextEditor from '$lib/components/Editor/ContextEditor.svelte';
@@ -11,10 +11,14 @@
   let loaded = false;
   let error = '';
   let showChat = true;
+  let graphSource: 'real' | 'demo' | null = null;
 
   onMount(async () => {
     try {
-      await loadGraphFromUrl('/demo-graph.json');
+      // Prefer the graph for the project the server is running in. Falls
+      // back to the bundled demo fixture only if no .klonode/graph.json
+      // exists for the server's cwd.
+      graphSource = await loadGraphForCurrentProject();
       loaded = true;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load graph';

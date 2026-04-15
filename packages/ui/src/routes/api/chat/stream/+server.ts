@@ -25,7 +25,20 @@ interface StreamRequest {
 export const POST: RequestHandler = async ({ request }) => {
   const body: StreamRequest = await request.json();
   const cliPath = body.cliPath || 'claude';
-  const cwd = body.repoPath || process.cwd();
+  // Validate repoPath exists on disk — otherwise fall back to the server's
+  // cwd. The shipped demo graph has `/path/to/your/project` as a placeholder,
+  // and if the user never configured a real repo path the first chat send
+  // would spawn the CLI in a nonexistent directory and fail with an opaque
+  // error. Falling back to process.cwd() gives a sane default.
+  let cwd = body.repoPath || process.cwd();
+  if (body.repoPath && !existsSync(body.repoPath)) {
+    console.warn(
+      `[Klonode Stream] repoPath "${body.repoPath}" does not exist on disk; ` +
+      `falling back to process.cwd() = "${process.cwd()}". ` +
+      `Configure a real repo path via settings or reinitialize the graph.`,
+    );
+    cwd = process.cwd();
+  }
 
   // Build system prompt
   let systemPrompt: string;
