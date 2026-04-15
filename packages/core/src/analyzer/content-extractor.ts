@@ -391,6 +391,71 @@ function extractExports(content: string, fileName: string): FileExport[] {
     }
   }
 
+  // Go — only uppercase-first identifiers are exported (package-level visibility)
+  if (fileName.endsWith('.go')) {
+    // func Name(...) returnType — top-level exported functions
+    for (const m of content.matchAll(/^func\s+([A-Z]\w*)\s*\(([^)]*)\)/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        const params = m[2].trim();
+        const safeParams = sanitizeExportSignature(params);
+        exports.push({
+          name: sanitizeExportName(m[1]),
+          kind: 'function',
+          signature: safeParams ? `(${safeParams})` : '()',
+        });
+      }
+    }
+    // func (r *Receiver) Name(...) — exported methods
+    for (const m of content.matchAll(/^func\s+\([^)]+\)\s+([A-Z]\w*)\s*\(([^)]*)\)/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        const params = m[2].trim();
+        const safeParams = sanitizeExportSignature(params);
+        exports.push({
+          name: sanitizeExportName(m[1]),
+          kind: 'function',
+          signature: safeParams ? `(${safeParams})` : '()',
+        });
+      }
+    }
+    // type Name struct
+    for (const m of content.matchAll(/^type\s+([A-Z]\w*)\s+struct\b/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'class' });
+      }
+    }
+    // type Name interface
+    for (const m of content.matchAll(/^type\s+([A-Z]\w*)\s+interface\b/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'interface' });
+      }
+    }
+    // type Name OtherType — newtype / type alias (not struct or interface)
+    for (const m of content.matchAll(/^type\s+([A-Z]\w*)\s+(?!struct\b|interface\b)\w/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'type' });
+      }
+    }
+    // const Name = value  (also handles: const Name Type = value)
+    for (const m of content.matchAll(/^const\s+([A-Z]\w*)\s/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
+      }
+    }
+    // var Name = value — map to 'const' kind (package-level vars are exported the same way)
+    for (const m of content.matchAll(/^var\s+([A-Z]\w*)\s/gm)) {
+      if (!seen.has(m[1])) {
+        seen.add(m[1]);
+        exports.push({ name: sanitizeExportName(m[1]), kind: 'const' });
+      }
+    }
+  }
+
   return exports;
 }
 
