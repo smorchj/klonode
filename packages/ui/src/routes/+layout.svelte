@@ -5,8 +5,6 @@
   import { viewMode } from '$lib/stores/graph';
   import { graphStore, selectedNodeId } from '$lib/stores/graph';
   import { pullLatest, githubStore } from '$lib/stores/github';
-  import { chatStore } from '$lib/stores/chat';
-  import { sessionsStore } from '$lib/stores/agents';
   import { simulatorStore } from '$lib/stores/simulator';
   import {
     defineComponent,
@@ -59,8 +57,6 @@
       graphStore,
       selectedNodeId,
       githubStore,
-      chatStore,
-      sessionsStore,
       simulatorStore,
     ]);
     return stop;

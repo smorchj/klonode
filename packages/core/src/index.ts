@@ -71,15 +71,5 @@ export type { SanitizeResult } from './security/sanitize.js';
 export { scanFile, scanRepository as scanRepositoryForInjection, formatReport as formatInjectionReport } from './security/injection-scanner.js';
 export type { ScanHit, ScanReport } from './security/injection-scanner.js';
 
-// Agents
-export { buildAgentRegistry, getAgentContext } from './agents/agent-registry.js';
-export type { AgentDefinition, AgentRegistry, AgentRole } from './agents/agent-registry.js';
-
-export { createMessageBus, logInteraction, readSessionLog, listSessionLogs, analyzeInteractions } from './agents/message-bus.js';
-export type { InteractionMessage, InteractionSession, InteractionAnalysis, MessageBus } from './agents/message-bus.js';
-
-export { loadCOState, saveCOState, recordInteraction, checkForNewTools, generateSuggestions, generateCOContext } from './agents/chief-organizer.js';
-export type { COState, CODecision, ImprovementSuggestion } from './agents/chief-organizer.js';
-
 // Serializer
 export { serializeGraph, deserializeGraph, saveGraph, loadGraph } from './serializer/serializer.js';

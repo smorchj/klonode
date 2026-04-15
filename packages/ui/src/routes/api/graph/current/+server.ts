@@ -62,8 +62,8 @@ export const GET: RequestHandler = async ({ url }) => {
   try {
     const raw = readFileSync(graphPath, 'utf-8');
     const graph = JSON.parse(raw);
-    // Make sure repoPath is set so the ChatPanel's spawn path finds the
-    // right cwd even if the stored graph was generated on another machine.
+    // Make sure repoPath is set to the server's cwd even if the stored
+    // graph was generated on another machine.
     if (!graph.repoPath || graph.repoPath === '' || graph.repoPath === '/path/to/your/project') {
       graph.repoPath = repoPath;
     }
