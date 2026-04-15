@@ -53,6 +53,38 @@ const INJECTION_PATTERNS: readonly RegExp[] = [
 /** Characters that can break markdown structure in CONTEXT.md. */
 const MARKDOWN_BREAKERS = /```|~~~|^#{1,6}\s/gm;
 
+/**
+ * Emoji ranges — a known prompt injection vector.
+ *
+ * Attackers use emojis to:
+ * 1. Smuggle hidden text via ZWJ (zero-width joiner) sequences
+ * 2. Confuse tokenization with flag sequences and modifiers
+ * 3. Inject directionality override chars (RTL/LTR) that hide reordered text
+ * 4. Use regional indicators to spell messages ( 🇦🇧🇨 = "ABC")
+ *
+ * We strip all emoji and related combining chars from extracted content.
+ */
+const EMOJI_PATTERN = new RegExp(
+  '[' +
+  '\\u{1F300}-\\u{1FAFF}' +   // Misc symbols, pictographs, emoji
+  '\\u{2600}-\\u{26FF}' +     // Misc symbols
+  '\\u{2700}-\\u{27BF}' +     // Dingbats
+  '\\u{1F900}-\\u{1F9FF}' +   // Supplemental symbols
+  '\\u{1F000}-\\u{1F02F}' +   // Mahjong/domino
+  '\\u{1F0A0}-\\u{1F0FF}' +   // Playing cards
+  '\\u{1F100}-\\u{1F1FF}' +   // Enclosed alphanumeric (flag indicators)
+  '\\u{1F200}-\\u{1F2FF}' +   // Enclosed ideographic
+  '\\u{200D}' +               // Zero-width joiner (ZWJ)
+  '\\u{FE0F}' +               // Variation selector-16 (emoji style)
+  '\\u{20E3}' +               // Combining enclosing keycap
+  '\\u{E0020}-\\u{E007F}' +   // Tag characters (invisible text smuggling!)
+  ']',
+  'gu'
+);
+
+/** Directional override characters — can hide text via Unicode bidi. */
+const BIDI_OVERRIDE = /[\u202A-\u202E\u2066-\u2069\u061C]/g;
+
 export interface SanitizeResult {
   /** The sanitized text, safe to inline in CONTEXT.md */
   text: string;
@@ -79,6 +111,17 @@ export function sanitizeForContext(input: string, maxLength: number = 80): Sanit
   // Strip control chars (except newlines and tabs) and zero-width chars
   // eslint-disable-next-line no-control-regex
   text = text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u200b-\u200f\ufeff]/g, '');
+
+  // Strip bidi override chars that can hide text via RTL reordering
+  text = text.replace(BIDI_OVERRIDE, '');
+
+  // Strip emojis entirely — they are a prompt injection vector
+  // (ZWJ sequences, flag indicators, tag chars, modifier chains)
+  const beforeEmojiStrip = text;
+  text = text.replace(EMOJI_PATTERN, '');
+  if (text !== beforeEmojiStrip) {
+    reasons.push('emoji-stripped');
+  }
 
   // Detect injection patterns
   for (const pattern of INJECTION_PATTERNS) {

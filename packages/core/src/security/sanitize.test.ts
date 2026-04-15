@@ -83,6 +83,57 @@ describe('sanitizeForContext', () => {
       const result = sanitizeForContext('Hidden\u200bText');
       expect(result.text).toBe('HiddenText');
     });
+
+    it('strips bidi override chars', () => {
+      const result = sanitizeForContext('Safe\u202Ehidden\u202Ctext');
+      expect(result.text).toBe('Safehiddentext');
+    });
+  });
+
+  describe('emoji stripping', () => {
+    it('removes basic emojis', () => {
+      const result = sanitizeForContext('Hello 👋 World 🌍');
+      expect(result.text).toBe('Hello World');
+      expect(result.flagged).toBe(true);
+      expect(result.reasons).toContain('emoji-stripped');
+    });
+
+    it('removes ZWJ emoji sequences', () => {
+      // 👨‍👩‍👧 is a ZWJ sequence — can hide text
+      const result = sanitizeForContext('Family 👨‍👩‍👧 here');
+      expect(result.text).toBe('Family here');
+      expect(result.flagged).toBe(true);
+    });
+
+    it('removes regional indicator flag sequences', () => {
+      // 🇳🇴 is two regional indicators — can spell messages
+      const result = sanitizeForContext('Norway 🇳🇴 flag');
+      expect(result.text).toBe('Norway flag');
+    });
+
+    it('removes tag characters (invisible text smuggling)', () => {
+      // E0020-E007F range — invisible tag chars
+      const result = sanitizeForContext('Visible\u{E0041}\u{E0042}\u{E0043}text');
+      expect(result.text).toBe('Visibletext');
+    });
+
+    it('removes emoji with variation selectors', () => {
+      // ❤️ is ❤ + VS16
+      const result = sanitizeForContext('I ❤️ code');
+      expect(result.text).toBe('I code');
+    });
+
+    it('removes keycap sequences', () => {
+      // 1️⃣ is 1 + VS16 + combining keycap
+      const result = sanitizeForContext('Step 1️⃣ first');
+      expect(result.text).toBe('Step 1 first');
+    });
+
+    it('does not flag plain text without emoji', () => {
+      const result = sanitizeForContext('No emoji here at all');
+      expect(result.flagged).toBe(false);
+      expect(result.reasons).not.toContain('emoji-stripped');
+    });
   });
 
   describe('truncation', () => {
