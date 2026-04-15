@@ -85,6 +85,15 @@ interface SessionsState {
    * self-hosting session survival work (#53 follow-up / #65 sibling).
    */
   cliSessionIds: Record<string, string>;
+  /**
+   * Detached-worker tracking per tab. When a tab is streaming, its worker
+   * id + last byte offset live here. Persisted so that after a Vite HMR or
+   * page reload, ChatPanel's onMount can reconnect by calling
+   * `connectWorker(activeWorkerId, lastWorkerOffset)` and pick up exactly
+   * where the previous browser dropped off. See #73 for the architecture.
+   */
+  activeWorkerIds: Record<string, string>;
+  lastWorkerOffsets: Record<string, number>;
 }
 
 const STORAGE_KEY = 'klonode-sessions';
@@ -135,6 +144,8 @@ function loadState(): SessionsState {
     coMemory: '',
     closedSessionQueue: [],
     cliSessionIds: {},
+    activeWorkerIds: {},
+    lastWorkerOffsets: {},
   };
 
   if (typeof localStorage === 'undefined') return defaults;
@@ -168,6 +179,8 @@ function loadState(): SessionsState {
           closedSessionQueue: saved.closedSessionQueue || [],
           coMemory: saved.coMemory || '',
           cliSessionIds: saved.cliSessionIds || {},
+          activeWorkerIds: saved.activeWorkerIds || {},
+          lastWorkerOffsets: saved.lastWorkerOffsets || {},
         };
       }
     }
@@ -283,6 +296,56 @@ export function clearCliSessionId(klonodeSessionId: string): void {
     const next = { ...s.cliSessionIds };
     delete next[klonodeSessionId];
     return { ...s, cliSessionIds: next };
+  });
+}
+
+/**
+ * Look up the detached Claude worker currently streaming into a tab, or
+ * `undefined` if the tab is idle. Set by ChatPanel when it spawns a worker
+ * and cleared when the worker finishes or is stopped. Persisted across
+ * reloads so Vite HMR doesn't orphan the streaming worker. See #73.
+ */
+export function getActiveWorkerId(klonodeSessionId: string): string | undefined {
+  return get(sessionsStore).activeWorkerIds[klonodeSessionId];
+}
+
+/** Record the worker id for a tab. */
+export function setActiveWorkerId(klonodeSessionId: string, workerId: string): void {
+  sessionsStore.update(s => ({
+    ...s,
+    activeWorkerIds: { ...s.activeWorkerIds, [klonodeSessionId]: workerId },
+  }));
+}
+
+/** Clear the active worker id for a tab (called on done / stop). */
+export function clearActiveWorkerId(klonodeSessionId: string): void {
+  sessionsStore.update(s => {
+    if (!(klonodeSessionId in s.activeWorkerIds)) return s;
+    const nextWorkers = { ...s.activeWorkerIds };
+    delete nextWorkers[klonodeSessionId];
+    const nextOffsets = { ...s.lastWorkerOffsets };
+    delete nextOffsets[klonodeSessionId];
+    return { ...s, activeWorkerIds: nextWorkers, lastWorkerOffsets: nextOffsets };
+  });
+}
+
+/** Current byte offset the tab has processed for its active worker's log. */
+export function getLastWorkerOffset(klonodeSessionId: string): number {
+  return get(sessionsStore).lastWorkerOffsets[klonodeSessionId] ?? 0;
+}
+
+/**
+ * Persist the latest byte offset from the worker's tail stream. Called on
+ * every event so a reconnect after HMR / reload resumes from the same
+ * place.
+ */
+export function setLastWorkerOffset(klonodeSessionId: string, offset: number): void {
+  sessionsStore.update(s => {
+    if (s.lastWorkerOffsets[klonodeSessionId] === offset) return s;
+    return {
+      ...s,
+      lastWorkerOffsets: { ...s.lastWorkerOffsets, [klonodeSessionId]: offset },
+    };
   });
 }
 

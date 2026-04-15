@@ -42,3 +42,6 @@ coverage/
 
 # Marketing drafts (private — edit/publish externally)
 .marketing/
+
+# Detached Claude worker state (see #73)
+.klonode/workers/
