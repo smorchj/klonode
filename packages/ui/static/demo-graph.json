@@ -1,6 +1,6 @@
 {
   "id": "demo-project",
-  "repoPath": "/path/to/your/project",
+  "repoPath": "",
   "rootNodeId": "root",
   "nodes": {
     "root": {
