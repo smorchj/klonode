@@ -68,6 +68,8 @@ export type { DetectedTool } from './analyzer/tool-detector.js';
 // Security
 export { sanitizeForContext, sanitizeFilename, wrapUntrustedBlock } from './security/sanitize.js';
 export type { SanitizeResult } from './security/sanitize.js';
+export { scanFile, scanRepository as scanRepositoryForInjection, formatReport as formatInjectionReport } from './security/injection-scanner.js';
+export type { ScanHit, ScanReport } from './security/injection-scanner.js';
 
 // Agents
 export { buildAgentRegistry, getAgentContext } from './agents/agent-registry.js';

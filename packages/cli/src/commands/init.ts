@@ -15,6 +15,8 @@ export async function initCommand(
     saveConfig,
     saveGraph,
     DEFAULT_CONFIG,
+    scanRepositoryForInjection,
+    formatInjectionReport,
   } = await import('@klonode/core');
 
   const resolved = path.resolve(repoPath);
@@ -64,6 +66,14 @@ export async function initCommand(
     writeGeneratedFiles(resolved, result.files, mode);
     saveConfig(resolved, config);
     saveGraph(resolved, result.graph);
+
+    // Security: scan generated + any hand-edited CONTEXT.md files for injection patterns
+    const scanReport = scanRepositoryForInjection(resolved);
+    if (scanReport.totalHits > 0) {
+      console.log('');
+      console.log(chalk.yellow('⚠ Security scan:'));
+      console.log(chalk.gray(formatInjectionReport(scanReport)));
+    }
 
     console.log(chalk.green.bold('\n✓ Routing generated successfully!'));
     console.log(chalk.gray(`\nClaude will now read CLAUDE.md → CONTEXT.md → directory CONTEXT.md`));
