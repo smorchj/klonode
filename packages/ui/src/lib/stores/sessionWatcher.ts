@@ -29,6 +29,8 @@ export interface SessionWatcherStatus {
   eventCount: number;
   /** Short message for the UI (last error or connection state). */
   message: string;
+  /** Number of pending suggestions after the last learning recompute. */
+  pendingSuggestions: number;
 }
 
 const initial: SessionWatcherStatus = {
@@ -37,6 +39,7 @@ const initial: SessionWatcherStatus = {
   watchedFileCount: 0,
   eventCount: 0,
   message: 'idle',
+  pendingSuggestions: 0,
 };
 
 export const sessionWatcherStatus = writable<SessionWatcherStatus>(initial);
@@ -145,6 +148,20 @@ function openStream(scope: WatchScope): void {
       eventCount: s.eventCount + 1,
       message: `${data.tool}: ${data.path || '(no path)'}`,
     }));
+  });
+
+  es.addEventListener('session-ended', (ev: MessageEvent) => {
+    try {
+      const data = JSON.parse(ev.data);
+      const nodeCount = data.nodeCount || 0;
+      sessionWatcherStatus.update(s => ({
+        ...s,
+        pendingSuggestions: nodeCount,
+        message: data.learningRecomputed
+          ? `Session ended — ${nodeCount} nodes scored`
+          : `Session ended (learning recompute failed)`,
+      }));
+    } catch { /* ignore */ }
   });
 
   es.onerror = () => {

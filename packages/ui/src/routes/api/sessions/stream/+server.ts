@@ -19,8 +19,10 @@ import {
   createSessionWatcher,
   resolveWatchDirs,
   type SessionActivityEvent,
+  type SessionEndedEvent,
 } from '$lib/server/session-watcher';
 import { openObservationLog } from '$lib/server/observation-log';
+import { computeLearningState, saveLearningState } from '$lib/server/learning';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -91,6 +93,25 @@ export const GET: RequestHandler = async ({ url, request }) => {
       unsubscribe = watcher.onEvent((event: SessionActivityEvent) => {
         observationLog.append(event);
         send('activity', event);
+      });
+
+      // Session-end detection: when a JSONL file stops growing for 10
+      // minutes, recompute the learning model and notify the client.
+      watcher.onSessionEnded((event: SessionEndedEvent) => {
+        // Recompute learning scores from the full observation log.
+        try {
+          const observations = observationLog.readAll();
+          const state = computeLearningState(observations);
+          saveLearningState(repoRoot, state);
+          send('session-ended', {
+            ...event,
+            learningRecomputed: true,
+            nodeCount: Object.keys(state.nodes).length,
+            observationCount: state.observationCount,
+          });
+        } catch {
+          send('session-ended', { ...event, learningRecomputed: false });
+        }
       });
 
       // Heartbeat keeps proxies and fetch buffering honest — an idle SSE

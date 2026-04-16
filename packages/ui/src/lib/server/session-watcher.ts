@@ -59,13 +59,29 @@ interface WatchedFile {
   buffer: string;
   /** Session id (filename without .jsonl). */
   sessionId: string;
+  /** Timestamp of last observed growth (for session-end detection). */
+  lastGrowthAt: number;
+  /** Whether we've already fired a session-ended event for this file. */
+  endedFired: boolean;
 }
+
+export interface SessionEndedEvent {
+  sessionId: string;
+  /** How long the session was idle before being declared ended (ms). */
+  idleMs: number;
+}
+
+/** How long a session must be idle before we declare it ended (ms). */
+const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 interface WatcherHandle {
   /** Stop polling and release resources. */
   stop: () => void;
-  /** Add a listener that receives every event as it's parsed. */
+  /** Add a listener that receives every tool_use event as it's parsed. */
   onEvent: (listener: (event: SessionActivityEvent) => void) => () => void;
+  /** Add a listener for session-end events (fired when a JSONL file stops
+   * growing for SESSION_IDLE_TIMEOUT_MS). */
+  onSessionEnded: (listener: (event: SessionEndedEvent) => void) => () => void;
   /** Current count of watched files (observability for the UI). */
   watchedFileCount: () => number;
   /** Approximate events emitted so far. */
@@ -265,6 +281,8 @@ export function createSessionWatcher(dirs: string[]): WatcherHandle {
           offset: size,
           buffer: '',
           sessionId: entry.replace(/\.jsonl$/, ''),
+          lastGrowthAt: Date.now(),
+          endedFired: false,
         });
       }
     }
@@ -280,7 +298,20 @@ export function createSessionWatcher(dirs: string[]): WatcherHandle {
       watched.delete(state.path);
       return;
     }
-    if (size === state.offset) return;
+    if (size === state.offset) {
+      // No growth — check for session-end timeout.
+      if (!state.endedFired && Date.now() - state.lastGrowthAt > SESSION_IDLE_TIMEOUT_MS) {
+        state.endedFired = true;
+        emitter.emit('session-ended', {
+          sessionId: state.sessionId,
+          idleMs: Date.now() - state.lastGrowthAt,
+        } satisfies SessionEndedEvent);
+      }
+      return;
+    }
+    // File grew — reset idle timer and re-arm session-end detection.
+    state.lastGrowthAt = Date.now();
+    state.endedFired = false;
     if (size < state.offset) {
       // File truncated (rare — probably a Claude Code reset). Reset offset.
       state.offset = 0;
@@ -340,6 +371,10 @@ export function createSessionWatcher(dirs: string[]): WatcherHandle {
     onEvent(listener): () => void {
       emitter.on('event', listener);
       return () => emitter.off('event', listener);
+    },
+    onSessionEnded(listener): () => void {
+      emitter.on('session-ended', listener);
+      return () => emitter.off('session-ended', listener);
     },
     watchedFileCount(): number {
       return watched.size;
