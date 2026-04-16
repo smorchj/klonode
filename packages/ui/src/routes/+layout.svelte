@@ -5,9 +5,10 @@
   import { viewMode } from '$lib/stores/graph';
   import { graphStore, selectedNodeId } from '$lib/stores/graph';
   import { pullLatest, githubStore } from '$lib/stores/github';
-  import { chatStore } from '$lib/stores/chat';
-  import { sessionsStore } from '$lib/stores/agents';
   import { simulatorStore } from '$lib/stores/simulator';
+  import { watchSettings, setWatchScope } from '$lib/stores/watchSettings';
+  import { sessionWatcherStatus, startSessionWatcher } from '$lib/stores/sessionWatcher';
+  import { loadLearning } from '$lib/stores/learning';
   import {
     defineComponent,
     defineComponentAction,
@@ -53,17 +54,24 @@
   // every store whose value is reflected in a registered component's state
   // reader so the sync re-pushes whenever any of them changes.
   onMount(() => {
-    const stop = startWorkstationSync([
+    const stopSync = startWorkstationSync([
       viewMode,
       locale,
       graphStore,
       selectedNodeId,
       githubStore,
-      chatStore,
-      sessionsStore,
       simulatorStore,
     ]);
-    return stop;
+    // Live node graph feed — tails Claude Code session JSONLs and feeds
+    // activeNodePaths so GraphView/TreeNode pulse rings light up in real
+    // time. See stores/sessionWatcher.ts and server/session-watcher.ts.
+    const stopWatcher = startSessionWatcher();
+    // Load learning state (confidence/urgency per node) for graph visualization.
+    loadLearning();
+    return () => {
+      stopSync();
+      stopWatcher();
+    };
   });
 
   let pulling = false;
@@ -112,6 +120,25 @@
     </div>
 
     <div class="nav-actions">
+      <div
+        class="watcher-status"
+        class:connected={$sessionWatcherStatus.connected}
+        title={`${$sessionWatcherStatus.connected ? 'Live' : 'Offline'} · ${$sessionWatcherStatus.watchedFileCount} file(s) · ${$sessionWatcherStatus.eventCount} events\n${$sessionWatcherStatus.message}`}
+      >
+        <span class="dot"></span>
+        <span class="watcher-label">Live</span>
+        <span class="watcher-count">{$sessionWatcherStatus.eventCount}</span>
+      </div>
+      <div class="scope-switcher" title="Watch scope for live node graph">
+        <button
+          class:active={$watchSettings.scope === 'project'}
+          on:click={() => setWatchScope('project')}
+        >Project</button>
+        <button
+          class:active={$watchSettings.scope === 'machine'}
+          on:click={() => setWatchScope('machine')}
+        >Machine</button>
+      </div>
       <button class="pull-btn" on:click={handlePull} disabled={pulling} title="Git pull latest">
         {pulling ? '↻...' : '↓ Pull'}
       </button>
@@ -169,5 +196,58 @@
   .pull-btn:disabled { opacity: 0.5; }
   .pull-msg { font-size: 10px; color: #10b981; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pull-msg.error { color: #f87171; }
+
+  .watcher-status {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    background: #14141c;
+    border: 1px solid #1f1f2e;
+    border-radius: 4px;
+    font-size: 11px; color: #6b7280;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .watcher-status .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #4b5563;
+  }
+  .watcher-status.connected { border-color: rgba(34, 211, 238, 0.3); color: #67e8f9; }
+  .watcher-status.connected .dot {
+    background: #22d3ee;
+    box-shadow: 0 0 6px rgba(34, 211, 238, 0.6);
+    animation: watcher-pulse 1.6s ease-in-out infinite;
+  }
+  .watcher-label { font-weight: 600; }
+  .watcher-count { opacity: 0.7; }
+  @keyframes watcher-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .scope-switcher { display: flex; gap: 2px; background: #1a1a24; border-radius: 4px; padding: 2px; }
+  .scope-switcher button {
+    padding: 3px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: #6b7280;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .scope-switcher button:hover { color: #e5e7eb; }
+  .scope-switcher button.active { background: #2d2d3d; color: #f9fafb; }
+
+  /* Responsive guards: at narrower widths, hide the non-essential bits of
+   * the top bar so the live watcher controls stay visible. The brand
+   * subtitle goes first, then the watcher "Live" text, then the pull
+   * button's message. */
+  @media (max-width: 1180px) {
+    .brand-sub { display: none; }
+  }
+  @media (max-width: 1040px) {
+    .watcher-label { display: none; }
+    .pull-msg { display: none; }
+  }
+
   .content { flex: 1; overflow: hidden; }
 </style>

@@ -20,8 +20,18 @@ export interface ActivityEvent {
   at: number;
 }
 
-/** How long a node stays highlighted after a tool call (ms). */
-export const ACTIVITY_LIFETIME_MS = 2500;
+/** How long a node stays highlighted after a tool call (ms).
+ *
+ * Tuned for the JSONL tail watcher introduced in #77. The legacy chat
+ * streaming handler pushed events with near-zero latency, so 2.5s was
+ * enough. The watcher has measurable end-to-end delay: JSONL append →
+ * 500ms poll tick → SSE → client → `recordActivity`, plus whatever time
+ * passes before the user's eye lands on the pulsing node. Verified
+ * against the current Claude Code session: observed event ages of 5+
+ * seconds between tool use and graph render. 8s gives a visible pulse
+ * even on the slow edge without cluttering the graph with everything
+ * from the last 20s. */
+export const ACTIVITY_LIFETIME_MS = 8000;
 
 const MAX_RECENT = 50;
 let nextId = 0;
@@ -72,7 +82,7 @@ function normalizePath(input: string, repoPath: string): string {
 }
 
 /**
- * Record a tool activity event. Called from the chat streaming handler.
+ * Record a tool activity event. Called from the session watcher client.
  */
 export function recordActivity(tool: string, input: string, repoPath: string = ''): void {
   const path = normalizePath(input, repoPath);
@@ -98,14 +108,34 @@ export function clearActivity(): void {
 /**
  * Derived map from path → {kind, timestamp} for active (not-yet-expired) events.
  * Components subscribe to this to highlight nodes.
+ *
+ * NOTE on the break vs. continue fix: we used to `break` when we hit the
+ * first expired event, on the assumption that `recent` was sorted
+ * newest-first by `at`. But `recordActivity` prepends via
+ * `[event, ...s.recent]` which keeps insertion order, not timestamp order —
+ * so a single out-of-order event (e.g. two events that arrive via SSE in
+ * the same tick but with slightly drifted timestamps) would terminate the
+ * loop early and drop every subsequent active event. Using `continue`
+ * costs one extra iteration per expired entry (cheap, bounded by
+ * MAX_RECENT) and is correct regardless of ordering.
  */
+// Module-level interval handle so consecutive derived re-runs don't stack
+// timers. Every time `activityStore` emits, Svelte calls the derived body
+// again — and if we don't clear the previous interval here, each run
+// accumulates a new timer that closes over a stale `$s.recent`. Those
+// stale timers then clobber the fresh ones with empty activity maps,
+// which is why pulse rings never rendered even though events were
+// arriving correctly. The cleanup arrow is still returned for the
+// last-subscriber-leaves case, but we also defensively clear here.
+let _activeNodePathsInterval: ReturnType<typeof setInterval> | null = null;
+
 export const activeNodePaths = derived(activityStore, ($s, set) => {
   function computeActive() {
     const now = Date.now();
     const active = new Map<string, { kind: ActivityKind; at: number }>();
     for (const event of $s.recent) {
       if (!event.path) continue;
-      if (now - event.at > ACTIVITY_LIFETIME_MS) break; // recent is sorted newest-first
+      if (now - event.at > ACTIVITY_LIFETIME_MS) continue;
       // Keep the newest event per path
       if (!active.has(event.path)) {
         active.set(event.path, { kind: event.kind, at: event.at });
@@ -121,10 +151,20 @@ export const activeNodePaths = derived(activityStore, ($s, set) => {
     }
     set(active);
   }
+  if (_activeNodePathsInterval) {
+    clearInterval(_activeNodePathsInterval);
+    _activeNodePathsInterval = null;
+  }
   computeActive();
-  // Re-compute every 250ms so expired events fade out
-  const interval = setInterval(computeActive, 250);
-  return () => clearInterval(interval);
+  // Re-compute every 250ms so expired events fade out even when the store
+  // isn't being updated.
+  _activeNodePathsInterval = setInterval(computeActive, 250);
+  return () => {
+    if (_activeNodePathsInterval) {
+      clearInterval(_activeNodePathsInterval);
+      _activeNodePathsInterval = null;
+    }
+  };
 }, new Map<string, { kind: ActivityKind; at: number }>());
 
 /**

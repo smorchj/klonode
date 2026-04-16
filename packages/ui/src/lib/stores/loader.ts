@@ -70,6 +70,16 @@ function hydrateGraph(data: SerializedGraph): RoutingGraph {
       };
     }
 
+    // Normalize path separators to forward slashes. The graph.json is
+    // generated on whatever platform built it (Windows serializes with
+    // backslashes). The live activity watcher normalizes every tool_use
+    // path to forward slashes via activity.normalizePath — if we don't
+    // normalize the graph side too, the `activeNodePaths.get(node.path)`
+    // lookup in GraphView/TreeNode fails and pulse rings never render.
+    if (typeof node.path === 'string') {
+      node.path = node.path.replace(/\\/g, '/');
+    }
+
     // Generate contextFile preview from node data if missing
     if (!node.contextFile && node.type !== 'file') {
       node.contextFile = buildContextPreview(node, data);
