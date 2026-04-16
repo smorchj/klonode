@@ -85,6 +85,56 @@ program
   });
 
 program
+  .command('learn')
+  .description('Compute learning scores from observation log')
+  .argument('[path]', 'Path to the repository', '.')
+  .option('--json', 'Output raw JSON instead of formatted text')
+  .action(async (repoPath: string, options: { json?: boolean }) => {
+    const path = await import('path');
+    const resolved = path.resolve(repoPath);
+
+    const { openObservationLog } = await import('../../ui/src/lib/server/observation-log.js');
+    const { computeLearningState, saveLearningState } = await import('../../ui/src/lib/server/learning.js');
+
+    const log = openObservationLog(resolved);
+    const observations = log.readAll();
+
+    if (observations.length === 0) {
+      console.log('No observations recorded yet. Use Klonode with the live watcher to accumulate data.');
+      return;
+    }
+
+    // Compute learning state from observations (emotion events from JSONL
+    // parsing is a separate, heavier step — for now we compute repetition only).
+    const state = computeLearningState(observations);
+    saveLearningState(resolved, state);
+
+    if (options.json) {
+      console.log(JSON.stringify(state, null, 2));
+      return;
+    }
+
+    console.log(`Learning state computed from ${state.observationCount} observations across ${state.sessionCount} session(s).\n`);
+
+    // Sort by confidence descending.
+    const sorted = Object.values(state.nodes).sort((a, b) => b.confidence - a.confidence);
+
+    if (sorted.length === 0) {
+      console.log('No folder-level data yet.');
+      return;
+    }
+
+    console.log('Top folders by confidence:\n');
+    for (const node of sorted.slice(0, 15)) {
+      const bar = '█'.repeat(Math.round(node.confidence * 20));
+      const urgencyStr = node.urgency > 0 ? ` urgency: ${node.urgency.toFixed(1)}` : '';
+      console.log(`  ${node.path.padEnd(45)} ${bar} ${(node.confidence * 100).toFixed(0)}%  (${node.signals.readCount}R ${node.signals.writeCount}W ${node.signals.sessionsCount}S)${urgencyStr}`);
+    }
+
+    console.log(`\nSaved to .klonode/learning.json`);
+  });
+
+program
   .command('update')
   .description('Regenerate routing for changed directories')
   .argument('[path]', 'Path to the repository', '.')
