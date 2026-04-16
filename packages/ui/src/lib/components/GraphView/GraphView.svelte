@@ -6,6 +6,7 @@
   import { routingGraphToFlow } from '../../utils/tree-to-graph';
   import { simulatorStore, activePathIds, pulsingNodeId, runSimulation, resetSimulation } from '../../stores/simulator';
   import { activeNodePaths } from '../../stores/activity';
+  import { learningScores } from '../../stores/learning';
   import {
     defineComponent,
     defineComponentAction,
@@ -380,6 +381,11 @@
                   : activity?.kind === 'search' ? '#a78bfa'
                   : activity?.kind === 'read' ? '#3b82f6'
                   : null}
+                {@const learning = $learningScores.get(node.data.path ?? '')}
+                {@const confidenceOpacity = learning ? 0.5 + learning.confidence * 0.5 : 1}
+                {@const urgencyColor = learning && learning.urgency > 2 ? '#ef4444'
+                  : learning && learning.urgency > 0.5 ? '#f97316'
+                  : null}
                 {@const heatBg = $showHeatmap && node.data.heatValue > 0
                   ? `rgba(245, 158, 11, ${node.data.heatValue * 0.4})`
                   : 'rgba(15, 15, 20, 0.85)'}
@@ -390,7 +396,7 @@
                   transform="translate({node.position.x}, {node.position.y})"
                   on:click|stopPropagation={() => selectNode(node.id)}
                   on:dblclick|stopPropagation={() => toggleGroup(node.id)}
-                  style="cursor: pointer"
+                  style="cursor: pointer; opacity: {dimmed ? undefined : confidenceOpacity}"
                   class="graph-node"
                   class:dimmed
                   class:on-path={isOnPath}
@@ -407,8 +413,8 @@
                   <rect
                     width="220" height="70" rx="10"
                     fill={activityColor ? `${activityColor}22` : isPulsing ? 'rgba(34, 211, 238, 0.15)' : isOnPath ? 'rgba(34, 211, 238, 0.08)' : heatBg}
-                    stroke={activityColor || (isPulsing ? '#22d3ee' : isOnPath ? '#22d3ee' : isSelected ? '#60a5fa' : color)}
-                    stroke-width={activityColor ? 3 : isPulsing ? 3 : isOnPath ? 2 : isSelected ? 2.5 : 1.2}
+                    stroke={activityColor || urgencyColor || (isPulsing ? '#22d3ee' : isOnPath ? '#22d3ee' : isSelected ? '#60a5fa' : color)}
+                    stroke-width={activityColor ? 3 : urgencyColor ? 2.5 : isPulsing ? 3 : isOnPath ? 2 : isSelected ? 2.5 : 1.2}
                   />
                   {#if activityColor}
                     <!-- Pulsing activity ring -->

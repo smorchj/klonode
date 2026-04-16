@@ -8,6 +8,7 @@
   import { simulatorStore } from '$lib/stores/simulator';
   import { watchSettings, setWatchScope } from '$lib/stores/watchSettings';
   import { sessionWatcherStatus, startSessionWatcher } from '$lib/stores/sessionWatcher';
+  import { loadLearning } from '$lib/stores/learning';
   import {
     defineComponent,
     defineComponentAction,
@@ -65,6 +66,8 @@
     // activeNodePaths so GraphView/TreeNode pulse rings light up in real
     // time. See stores/sessionWatcher.ts and server/session-watcher.ts.
     const stopWatcher = startSessionWatcher();
+    // Load learning state (confidence/urgency per node) for graph visualization.
+    loadLearning();
     return () => {
       stopSync();
       stopWatcher();
