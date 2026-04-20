@@ -113,6 +113,10 @@
   let attachments: { name: string; type: string; dataUrl: string; file: File }[] = [];
   let fileInput: HTMLInputElement;
   let abortController: AbortController | null = null;
+  // Queue of messages the user sent while a stream was in progress.
+  // Each entry also carries the ID of the pending user bubble so we can
+  // remove it when the message transitions from "queued" to "streaming".
+  let queuedMessages: { content: string; pendingId: string }[] = [];
   // Klonode session tab ID → Claude CLI session ID is now tracked in
   // sessionsStore.cliSessionIds and persisted to localStorage, so reloads
   // and Vite server restarts preserve conversation continuity. Use
@@ -141,8 +145,29 @@
 
   async function handleSend() {
     const msg = inputValue.trim();
-    if (!msg || $chatStore.isLoading) return;
+    if (!msg) return;
     inputValue = '';
+
+    // If a stream is already in progress, queue the message and show a
+    // pending bubble so the user can see it waiting.
+    if ($chatStore.isLoading) {
+      const pendingId = Math.random().toString(36).slice(2, 10);
+      queuedMessages = [...queuedMessages, { content: msg, pendingId }];
+      chatStore.update(s => ({
+        ...s,
+        messages: [...s.messages, {
+          id: pendingId,
+          role: 'user' as const,
+          content: msg,
+          timestamp: new Date(),
+          pending: true,
+        }],
+      }));
+      await tick();
+      scrollToBottom();
+      return;
+    }
+
     activityLog = [];
     streamingText = '';
 
@@ -152,6 +177,28 @@
       // Use streaming for all sessions to get live feedback
       await sendMessageStreaming(msg);
     }
+    await tick();
+    scrollToBottom();
+  }
+
+  /**
+   * Pull the next message from the queue and start streaming it.
+   * Removes its pending bubble, then calls sendMessageStreaming.
+   * sendMessageStreaming calls dequeueNext itself when it finishes, so the
+   * whole queue drains automatically and in order.
+   */
+  async function dequeueNext() {
+    if (queuedMessages.length === 0) return;
+    const next = queuedMessages[0];
+    queuedMessages = queuedMessages.slice(1);
+    // Remove the pending bubble — sendMessageStreaming will add a real one
+    chatStore.update(s => ({
+      ...s,
+      messages: s.messages.filter(m => m.id !== next.pendingId),
+    }));
+    activityLog = [];
+    streamingText = '';
+    await sendMessageStreaming(next.content);
     await tick();
     scrollToBottom();
   }
@@ -289,18 +336,31 @@
             console.warn('[Klonode] Graph refresh failed:', e);
           }
         }
+
+        // Drain the send queue — start the next message if one is waiting
+        await dequeueNext();
       } catch (err) {
         abortController = null;
+        const wasAborted = err instanceof Error && err.name === 'AbortError';
         chatStore.update(s => ({
           ...s, isLoading: false,
           messages: s.messages.map(m => m.id === loadingId ? {
-            ...m, loading: false, content: `Feil: ${err instanceof Error ? err.message : 'Ukjent feil'}`,
+            ...m, loading: false,
+            content: wasAborted
+              ? 'Stoppet av bruker.'
+              : `Feil: ${err instanceof Error ? err.message : 'Ukjent feil'}`,
           } : m),
         }));
+        // On user abort the queue stays intact so they can resume manually.
+        // On a real error we drain so queued messages still get sent.
+        if (!wasAborted) {
+          await dequeueNext();
+        }
       }
     } else {
       // API mode: use regular sendMessage (no streaming)
       await sendMessage(userMessage);
+      await dequeueNext();
     }
   }
 
@@ -642,7 +702,10 @@ Rules:
       {#each $chatStore.messages as msg (msg.id)}
         {#if msg.role === 'user'}
           <div class="message user-message">
-            <div class="user-bubble">{msg.content}</div>
+            <div class="user-bubble" class:pending={msg.pending}>{msg.content}</div>
+            {#if msg.pending}
+              <span class="queued-pill" title="This message is queued and will be sent when the current response finishes">queued</span>
+            {/if}
           </div>
         {:else if msg.role === 'assistant'}
           <div class="message assistant-message"
@@ -812,21 +875,19 @@ Rules:
         on:paste={handlePaste}
         placeholder={chatMode === 'compare' ? 'Sammenlign... (Enter)' : 'Skriv eller lim inn bilde... (Enter)'}
         rows="2"
-        disabled={$chatStore.isLoading}
       ></textarea>
       {#if $chatStore.isLoading}
         <button class="stop-btn" on:click={handleStop} title="Stopp">
           Stop
         </button>
-      {:else}
-        <button
-          class="send-btn"
-          on:click={handleSend}
-          disabled={!inputValue.trim() && attachments.length === 0}
-        >
-          ->
-        </button>
       {/if}
+      <button
+        class="send-btn"
+        on:click={handleSend}
+        disabled={!inputValue.trim() && attachments.length === 0}
+      >
+        ->
+      </button>
     </div>
   </div>
 </div>
@@ -1102,6 +1163,17 @@ Rules:
     border-radius: 10px 10px 2px 10px;
     padding: 8px 12px; font-size: 12px; color: #e5e7eb;
     max-width: 85%; line-height: 1.5;
+  }
+  .user-bubble.pending { opacity: 0.55; }
+  .queued-pill {
+    font-size: 9px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    font-weight: 600;
+    margin-top: 3px;
+    align-self: flex-end;
+    cursor: help;
   }
 
   .assistant-message {
