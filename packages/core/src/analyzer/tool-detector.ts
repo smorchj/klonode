@@ -36,6 +36,8 @@ interface ToolSignature {
   versionFrom?: 'package.json' | 'config';
   /** Package name in package.json (for version extraction) */
   packageName?: string;
+  /** If a signal file matches an entry here, its contents must match the pattern */
+  fileContains?: Array<{ file: string; pattern: RegExp }>;
   /** Context hint template */
   contextHint: string;
 }
@@ -63,6 +65,16 @@ const TOOL_SIGNATURES: ToolSignature[] = [
     contextHint: 'Supabase: PostgreSQL + Auth + Storage + Realtime, config in supabase/',
   },
   // Frameworks
+  {
+    id: 'rails', name: 'Ruby on Rails', category: 'framework',
+    signals: ['Gemfile', 'config/application.rb', 'bin/rails'],
+    fileContains: [
+      { file: 'Gemfile', pattern: /gem\s+['"]rails['"]/i },
+      { file: 'config/application.rb', pattern: /Rails::Application/ },
+    ],
+    filePatterns: ['app/controllers/**', 'app/models/**', 'app/views/**', 'config/**', 'db/**', 'Gemfile'],
+    contextHint: 'Ruby on Rails: MVC framework, app/ has models/views/controllers, db/ has migrations, config/routes.rb defines routes',
+  },
   {
     id: 'nextjs', name: 'Next.js', category: 'framework',
     signals: ['next.config.js', 'next.config.mjs', 'next.config.ts'],
@@ -209,10 +221,16 @@ export function detectTools(repoRoot: string, scanResult?: ScanEntry): DetectedT
     // Check file signals
     for (const signal of sig.signals) {
       const fullPath = join(repoRoot, signal);
-      if (existsSync(fullPath)) {
-        configPath = signal;
-        break;
+      if (!existsSync(fullPath)) continue;
+      const contentCheck = sig.fileContains?.find(c => c.file === signal);
+      if (contentCheck) {
+        try {
+          const contents = readFileSync(fullPath, 'utf-8');
+          if (!contentCheck.pattern.test(contents)) continue;
+        } catch { continue; }
       }
+      configPath = signal;
+      break;
     }
 
     // Check package.json deps (for tools without config files, like Express)
