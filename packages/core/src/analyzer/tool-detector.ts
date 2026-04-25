@@ -98,6 +98,12 @@ const TOOL_SIGNATURES: ToolSignature[] = [
     versionFrom: 'package.json', packageName: 'express',
     contextHint: 'Express: middleware + router pattern, routes in routes/',
   },
+  {
+    id: 'django', name: 'Django', category: 'framework',
+    signals: ['manage.py'],
+    filePatterns: ['**/models.py', '**/views.py', '**/urls.py', '**/settings.py'],
+    contextHint: 'Django: Python web framework, models/views/urls per app, settings.py for config, manage.py for CLI',
+  },
   // Runtimes
   {
     id: 'deno', name: 'Deno', category: 'language',
